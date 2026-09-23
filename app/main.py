@@ -157,7 +157,8 @@ async def process_closed_candle():
         record = {"ts":datetime.now(timezone.utc).isoformat(),"candle_time":current_candle_time,
                   "symbol":state["symbol"],"interval":state["interval"],"price":price,
                   "action":action,"confidence":decision["confidence"],"latency_ms":decision["latency_ms"],
-                  "indicators":ctx,"reason":decision["reason"],"model":decision["model"]}
+                  "indicators":ctx,"reason":decision["reason"],"model":decision["model"],
+                  "is_live_trading": bool(state["trading_active"])}
         db.add_decision(record)
         state["latest_decision"] = record
         await broadcast({
@@ -179,8 +180,8 @@ async def stream_loop(symbol, interval):
         state["connected"] = True
         closed = candle["closed"]
         append_candle(candle)
-        portfolio.mark(candle["close"])
-        await broadcast({"type":"candle","candle":candle,"portfolio":portfolio.snapshot(),"connected":True})
+        portfolio.mark(candle["close"], symbol.upper())
+        await broadcast({"type":"candle","candle":candle,"portfolio":portfolio.snapshot(),"connected":True,"trading_active":state["trading_active"]})
         if closed: await process_closed_candle()
     await market.start(symbol, interval, on_kline)
 
@@ -280,8 +281,8 @@ async def configure(payload: dict):
         except asyncio.CancelledError: pass
     await load_market(symbol, interval)
     stream_task = asyncio.create_task(stream_loop(symbol, interval))
-    await broadcast({"type":"config","symbol":symbol,"interval":interval,"candles":state["candles"],"portfolio":portfolio.snapshot()})
-    return {"ok":True,"symbol":symbol,"interval":interval,"portfolio":portfolio.snapshot()}
+    await broadcast({"type":"config","symbol":symbol,"interval":interval,"candles":state["candles"],"portfolio":portfolio.snapshot(),"trading_active":state["trading_active"]})
+    return {"ok":True,"symbol":symbol,"interval":interval,"portfolio":portfolio.snapshot(),"trading_active":state["trading_active"]}
 
 @app.post("/api/portfolio/order")
 async def manual_paper_order(payload: dict):
@@ -347,7 +348,8 @@ async def live_socket(ws: WebSocket):
     subscribers.add(ws)
     try:
         await ws.send_text(json.dumps({"type":"hello","connected":True,"symbol":state["symbol"],
-                                       "interval":state["interval"],"portfolio":portfolio.snapshot()}))
+                                       "interval":state["interval"],"portfolio":portfolio.snapshot(),
+                                       "trading_active":state["trading_active"]}))
         while True: await ws.receive_text()
     except (WebSocketDisconnect, Exception):
         subscribers.discard(ws)
