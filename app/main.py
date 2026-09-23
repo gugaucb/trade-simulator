@@ -51,10 +51,13 @@ async def shutdown():
 
 async def load_market(symbol, interval):
     state["symbol"], state["interval"] = symbol.upper(), interval
+    portfolio.set_active_symbol(symbol.upper())
     state["candles"] = await market.klines(symbol, interval, 300)
     state["df"] = enrich(pd.DataFrame(state["candles"]))
     try: state["ticker"] = await market.ticker24h(symbol)
     except Exception: state["ticker"] = None
+    if state["candles"]:
+        portfolio.mark(state["candles"][-1]["close"], symbol.upper())
 
 async def broadcast(payload):
     raw = json.dumps(payload, default=str)
@@ -277,8 +280,66 @@ async def configure(payload: dict):
         except asyncio.CancelledError: pass
     await load_market(symbol, interval)
     stream_task = asyncio.create_task(stream_loop(symbol, interval))
-    await broadcast({"type":"config","symbol":symbol,"interval":interval,"candles":state["candles"]})
-    return {"ok":True,"symbol":symbol,"interval":interval}
+    await broadcast({"type":"config","symbol":symbol,"interval":interval,"candles":state["candles"],"portfolio":portfolio.snapshot()})
+    return {"ok":True,"symbol":symbol,"interval":interval,"portfolio":portfolio.snapshot()}
+
+@app.post("/api/portfolio/order")
+async def manual_paper_order(payload: dict):
+    side = str(payload.get("side", "BUY")).upper()
+    fraction = float(payload.get("fraction", 0.25 if side == "BUY" else 1.0))
+    symbol = str(payload.get("symbol", state["symbol"])).upper()
+
+    portfolio.set_active_symbol(symbol)
+    price = 0.0
+    if state["candles"]:
+        price = float(state["candles"][-1]["close"])
+    elif state["ticker"] and "lastPrice" in state["ticker"]:
+        price = float(state["ticker"]["lastPrice"])
+
+    if price <= 0:
+        return JSONResponse({"error": "Price unavailable for order execution"}, status_code=400)
+
+    trade = None
+    if side == "BUY":
+        qty = portfolio.buy(price, fraction=fraction, symbol=symbol)
+        if not qty:
+            return JSONResponse({"error": "Insufficient cash for BUY"}, status_code=400)
+        trade = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "symbol": symbol,
+            "side": "BUY",
+            "price": price,
+            "quantity": qty,
+            "cash_after": portfolio.cash,
+            "position_after": portfolio.current_position["quantity"],
+            "realized_pnl": 0.0
+        }
+        db.add_trade(trade)
+    elif side == "SELL":
+        res = portfolio.sell(price, fraction=fraction, symbol=symbol)
+        if not res:
+            return JSONResponse({"error": f"No {symbol} position to SELL"}, status_code=400)
+        trade = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "symbol": symbol,
+            "side": "SELL",
+            "price": price,
+            "quantity": res["quantity"],
+            "cash_after": portfolio.cash,
+            "position_after": portfolio.current_position["quantity"],
+            "realized_pnl": res["realized_pnl"]
+        }
+        db.add_trade(trade)
+    else:
+        return JSONResponse({"error": f"Invalid side: {side}"}, status_code=400)
+
+    snap = portfolio.snapshot()
+    await broadcast({
+        "type": "portfolio",
+        "portfolio": snap,
+        "trade": trade
+    })
+    return JSONResponse({"ok": True, "trade": trade, "portfolio": snap})
 
 @app.websocket("/ws/live")
 async def live_socket(ws: WebSocket):

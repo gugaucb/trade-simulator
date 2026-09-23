@@ -59,23 +59,59 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
 <div class="grid grid-cols-12 gap-4">
 <aside class="col-span-12 xl:col-span-2 space-y-4">
   <div class="bg-white rounded-2xl border border-line p-4 shadow-soft">
-    <div class="flex rounded-xl bg-slate-50 p-1 text-xs"><button class="flex-1 bg-white rounded-lg py-2 font-medium">Balance</button><button class="flex-1 py-2 text-slate-400">Stats</button></div>
-    <div class="mt-5"><div class="text-xs text-slate-400">Paper equity</div><div id="equity" class="text-2xl font-semibold mt-1">$10,000.00</div><div id="pnl" class="text-xs mt-1 text-slate-400">+$0.00 (0.00%)</div></div>
-    <div class="grid grid-cols-2 gap-3 mt-5"><div class="rounded-xl bg-slate-50 p-3"><div class="text-[10px] text-slate-400">Cash</div><div id="cash" class="font-semibold text-sm mt-1">$10k</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-[10px] text-slate-400">Position</div><div id="position" class="font-semibold text-sm mt-1">0 BTC</div></div></div>
+    <div class="flex items-center justify-between mb-3">
+      <div class="flex items-center gap-1.5 text-xs font-semibold text-ink">
+        <i data-lucide="wallet" class="w-3.5 text-accent"></i> Carteira Paper
+      </div>
+      <span class="text-[10px] text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full flex items-center gap-1 font-medium">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> Online
+      </span>
+    </div>
+    <div class="mt-2">
+      <div class="text-xs text-slate-400">Paper equity (Total)</div>
+      <div id="equity" class="text-2xl font-bold mt-0.5">$10,000.00</div>
+      <div id="pnl" class="text-xs mt-1 text-slate-400 font-medium">+$0.00 (0.00%)</div>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mt-4">
+      <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+        <div class="text-[10px] text-slate-400">Cash disponível</div>
+        <div id="cash" class="font-semibold text-xs mt-0.5">$10,000.00</div>
+      </div>
+      <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+        <div class="text-[10px] text-slate-400">Posição (<span id="balanceCoinCode">BTC</span>)</div>
+        <div id="position" class="font-semibold text-xs mt-0.5">0.00000 BTC</div>
+      </div>
+    </div>
   </div>
   <div class="bg-white rounded-2xl border border-line p-4 shadow-soft">
-    <div class="flex items-center justify-between mb-3"><span class="font-semibold text-sm">Markets</span><i data-lucide="search" class="w-4 text-slate-400"></i></div>
+    <div class="flex items-center justify-between mb-3"><span class="font-semibold text-sm">Mercados</span><i data-lucide="search" class="w-4 text-slate-400"></i></div>
     <div id="marketList" class="space-y-1"></div>
   </div>
 </aside>
 
 <section class="col-span-12 xl:col-span-7 space-y-4">
+  <!-- Crypto Selection Bar (Ativo Negociado pelo Laya) -->
+  <div class="bg-white rounded-2xl border border-line shadow-soft p-4">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div>
+        <h3 class="text-sm font-semibold flex items-center gap-2">
+          <i data-lucide="coins" class="w-4 text-accent"></i> Selecionar Criptomoeda para o Laya Negociar
+        </h3>
+        <p class="text-xs text-slate-400">Escolha o par de negociação SPOT 1m monitorado em tempo real e operado pela IA.</p>
+      </div>
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-50 text-accent text-xs font-semibold">
+        <span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span> Ativo do Laya: <span id="activeCryptoLabel" class="ml-1 uppercase font-bold">BTC/USDT</span>
+      </div>
+    </div>
+    <div id="cryptoChipsContainer" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5"></div>
+  </div>
+
   <div class="bg-white rounded-2xl border border-line shadow-soft overflow-hidden">
     <div class="p-4 border-b border-line flex flex-wrap items-center gap-4">
-      <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-orange-100 text-orange-500 grid place-items-center font-bold">₿</div><div><div class="flex items-center gap-2"><span id="symbolTitle" class="font-semibold">BTC/USDT</span><span class="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-500">Spot Public</span></div><div id="price" class="text-xs text-slate-400 mt-1">Loading…</div></div></div>
+      <div class="flex items-center gap-3"><div id="chartCoinIcon" class="w-10 h-10 rounded-full bg-orange-100 text-orange-500 grid place-items-center font-bold">₿</div><div><div class="flex items-center gap-2"><span id="symbolTitle" class="font-semibold">BTC/USDT</span><span class="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-500">Spot Public</span></div><div id="price" class="text-xs text-slate-400 mt-1">Loading…</div></div></div>
       <div class="ml-auto flex items-center gap-2">
-        <select id="symbolSelect" class="border border-line rounded-xl px-3 py-2 text-xs bg-white"><option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option><option>BNBUSDT</option><option>XRPUSDT</option><option>ADAUSDT</option></select>
-        <select id="intervalSelect" class="border border-line rounded-xl px-3 py-2 text-xs bg-white"><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1D</option></select>
+        <select id="symbolSelect" onchange="selectCrypto(this.value)" class="border border-line rounded-xl px-3 py-2 text-xs bg-white font-medium cursor-pointer"><option value="BTCUSDT">BTCUSDT</option><option value="ETHUSDT">ETHUSDT</option><option value="SOLUSDT">SOLUSDT</option><option value="BNBUSDT">BNBUSDT</option><option value="XRPUSDT">XRPUSDT</option><option value="ADAUSDT">ADAUSDT</option></select>
+        <select id="intervalSelect" onchange="configure()" class="border border-line rounded-xl px-3 py-2 text-xs bg-white font-medium cursor-pointer"><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1D</option></select>
       </div>
     </div>
     <div class="px-4 pt-3 flex items-center gap-5 text-xs text-slate-400"><span class="font-medium text-slate-700">Candles</span><span>Indicators</span><span>Signals</span><span class="ml-auto flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-up pulse"></span> Binance Realtime WebSocket</span></div>
@@ -195,6 +231,24 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
       <div><div class="text-[10px] text-slate-400">Unrealized P&L</div><div id="unrealized" class="font-semibold mt-1">—</div></div>
       <div><div class="text-[10px] text-slate-400">Realized P&L</div><div id="realized" class="font-semibold mt-1">—</div></div>
       <div><div class="text-[10px] text-slate-400">Total Trades</div><div id="tradeCount" class="font-semibold mt-1">0</div></div>
+    </div>
+    <!-- Quick Paper Order Test Actions -->
+    <div class="mt-4 pt-3.5 border-t border-line space-y-2">
+      <div class="text-[11px] font-medium text-slate-500 flex items-center justify-between">
+        <span>Ordem Manual (Paper Trading):</span>
+        <span class="text-[10px] text-slate-400">Teste Imediato</span>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <button id="btnQuickBuy" onclick="executePaperOrder('BUY', 0.25)" class="py-2 px-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white">
+          <i data-lucide="arrow-up-right" class="w-3.5"></i> Comprar 25%
+        </button>
+        <button id="btnQuickSell" onclick="executePaperOrder('SELL', 1.0)" class="py-2 px-2.5 rounded-xl font-semibold text-xs flex items-center justify-center gap-1.5 transition-all shadow-sm bg-rose-600 hover:bg-rose-700 text-white">
+          <i data-lucide="arrow-down-right" class="w-3.5"></i> Vender 100%
+        </button>
+      </div>
+      <div class="text-[10px] text-center text-slate-400">
+        Executa ordem simulada para testar oscilação do balance ao vivo.
+      </div>
     </div>
   </div>
 
@@ -486,15 +540,108 @@ function switchTab(tab) {
 }
 
 function setPortfolio(p) {
-  document.querySelector('#equity').textContent = money(p.equity);
-  document.querySelector('#cash').textContent = money(p.cash);
-  document.querySelector('#position').textContent = fmt(p.quantity, 5) + ' ' + document.querySelector('#symbolTitle').textContent.split('/')[0];
+  if (!p) return;
+  const eqEl = document.querySelector('#equity');
+  if (eqEl) {
+    eqEl.textContent = money(p.equity);
+  }
+  const cashEl = document.querySelector('#cash');
+  if (cashEl) cashEl.textContent = money(p.cash);
+  
+  const currentSym = (p.active_symbol || document.querySelector('#symbolSelect').value || 'BTCUSDT');
+  const activeCode = currentSym.replace('USDT', '');
+  
+  const posEl = document.querySelector('#position');
+  if (posEl) posEl.textContent = fmt(p.quantity, 5) + ' ' + activeCode;
+  
+  const coinLabel = document.querySelector('#balanceCoinCode');
+  if (coinLabel) coinLabel.textContent = activeCode;
+
   const pnl = document.querySelector('#pnl');
-  pnl.textContent = (p.pnl >= 0 ? '+' : '') + money(p.pnl) + ' (' + p.pnl_pct.toFixed(2) + '%)';
-  pnl.className = 'text-xs mt-1 ' + (p.pnl >= 0 ? 'text-up' : 'text-down');
-  document.querySelector('#entry').textContent = p.avg_entry ? money(p.avg_entry) : '—';
-  document.querySelector('#unrealized').textContent = money(p.unrealized_pnl);
-  document.querySelector('#realized').textContent = money(p.realized_pnl);
+  if (pnl) {
+    pnl.textContent = (p.pnl >= 0 ? '+' : '') + money(p.pnl) + ' (' + Number(p.pnl_pct || 0).toFixed(2) + '%)';
+    pnl.className = 'text-xs mt-1 font-semibold ' + (p.pnl >= 0 ? 'text-up' : 'text-down');
+  }
+  const entryEl = document.querySelector('#entry');
+  if (entryEl) entryEl.textContent = p.avg_entry ? money(p.avg_entry) : '—';
+  const unrEl = document.querySelector('#unrealized');
+  if (unrEl) unrEl.textContent = money(p.unrealized_pnl);
+  const realEl = document.querySelector('#realized');
+  if (realEl) realEl.textContent = money(p.realized_pnl);
+}
+
+const CRYPTOS = [
+  { symbol: 'BTCUSDT', name: 'Bitcoin', code: 'BTC', icon: '₿', bg: 'bg-orange-100 text-orange-600' },
+  { symbol: 'ETHUSDT', name: 'Ethereum', code: 'ETH', icon: 'Ξ', bg: 'bg-indigo-100 text-indigo-600' },
+  { symbol: 'SOLUSDT', name: 'Solana', code: 'SOL', icon: '◎', bg: 'bg-teal-100 text-teal-600' },
+  { symbol: 'BNBUSDT', name: 'BNB', code: 'BNB', icon: '❖', bg: 'bg-amber-100 text-amber-600' },
+  { symbol: 'XRPUSDT', name: 'XRP', code: 'XRP', icon: '✕', bg: 'bg-sky-100 text-sky-600' },
+  { symbol: 'ADAUSDT', name: 'Cardano', code: 'ADA', icon: '₳', bg: 'bg-blue-100 text-blue-600' }
+];
+
+function renderCryptoChips(selectedSymbol) {
+  const container = document.getElementById('cryptoChipsContainer');
+  if (!container) return;
+  container.innerHTML = CRYPTOS.map(c => {
+    const isSelected = c.symbol === selectedSymbol;
+    return `
+      <button onclick="selectCrypto('${c.symbol}')" class="flex items-center gap-2 p-2 rounded-xl border text-left transition-all ${
+        isSelected
+          ? 'bg-violet-50/80 border-accent shadow-sm ring-2 ring-accent/25'
+          : 'bg-slate-50/70 border-line hover:border-slate-300 hover:bg-slate-100/50'
+      }">
+        <div class="w-8 h-8 rounded-lg ${c.bg} grid place-items-center font-bold text-sm shrink-0">
+          ${c.icon}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between">
+            <span class="font-bold text-xs ${isSelected ? 'text-accent' : 'text-ink'}">${c.code}</span>
+            ${isSelected ? '<span class="w-1.5 h-1.5 rounded-full bg-accent animate-pulse"></span>' : ''}
+          </div>
+          <div class="text-[10px] text-slate-400 truncate">${c.name}</div>
+        </div>
+      </button>
+    `;
+  }).join('');
+  const label = document.getElementById('activeCryptoLabel');
+  if (label) label.textContent = selectedSymbol.replace('USDT', '/USDT');
+  const chartIcon = document.getElementById('chartCoinIcon');
+  if (chartIcon) {
+    const match = CRYPTOS.find(c => c.symbol === selectedSymbol);
+    if (match) {
+      chartIcon.className = `w-10 h-10 rounded-full ${match.bg} grid place-items-center font-bold text-base`;
+      chartIcon.textContent = match.icon;
+    }
+  }
+}
+
+async function selectCrypto(symbol) {
+  document.querySelector('#symbolSelect').value = symbol;
+  renderCryptoChips(symbol);
+  await configure();
+}
+
+async function executePaperOrder(side, fraction = 0.25) {
+  try {
+    const sym = document.querySelector('#symbolSelect').value;
+    const res = await fetch('/api/portfolio/order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ side, fraction, symbol: sym })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setPortfolio(data.portfolio);
+      if (data.trade) {
+        addTrade(data.trade);
+        document.querySelector('#tradeCount').textContent = Number(document.querySelector('#tradeCount').textContent) + 1;
+      }
+    } else if (data.error) {
+      alert(data.error);
+    }
+  } catch (err) {
+    console.error('Failed to execute paper order:', err);
+  }
 }
 
 function setAction(d) {
@@ -643,14 +790,16 @@ function setLive(on) {
 }
 
 async function configure() {
-  await fetch('/api/config', {
+  const sym = document.querySelector('#symbolSelect').value;
+  const interval = document.querySelector('#intervalSelect').value;
+  renderCryptoChips(sym);
+  const res = await fetch('/api/config', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      symbol: document.querySelector('#symbolSelect').value,
-      interval: document.querySelector('#intervalSelect').value
-    })
+    body: JSON.stringify({ symbol: sym, interval })
   });
+  const data = await res.json();
+  if (data.portfolio) setPortfolio(data.portfolio);
 }
 
 async function bootstrap() {
@@ -658,6 +807,7 @@ async function bootstrap() {
   document.querySelector('#symbolTitle').textContent = d.symbol.replace('USDT', '/USDT');
   document.querySelector('#symbolSelect').value = d.symbol;
   document.querySelector('#intervalSelect').value = d.interval;
+  renderCryptoChips(d.symbol);
   makeChart(d.candles);
   setPortfolio(d.portfolio);
   if (d.trading_active !== undefined) setTradingActive(d.trading_active);
@@ -668,12 +818,11 @@ async function bootstrap() {
   (d.trades || []).slice().reverse().forEach(addTrade);
   document.querySelector('#tradeCount').textContent = d.trades.length;
   const syms = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT'];
-  document.querySelector('#marketList').innerHTML = syms.map(s => '<button onclick="pick(\'' + s + '\')" class="w-full flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 text-xs"><span class="font-medium">' + s.replace('USDT', '') + '</span><span class="text-slate-400">USDT</span></button>').join('');
+  document.querySelector('#marketList').innerHTML = syms.map(s => '<button onclick="selectCrypto(\'' + s + '\')" class="w-full flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 text-xs"><span class="font-medium">' + s.replace('USDT', '') + '</span><span class="text-slate-400">USDT</span></button>').join('');
 }
 
 function pick(s) {
-  document.querySelector('#symbolSelect').value = s;
-  configure();
+  selectCrypto(s);
 }
 
 function connect() {
@@ -698,7 +847,9 @@ function connect() {
     if (m.type === 'config') {
       chartMarkers = [];
       document.querySelector('#symbolTitle').textContent = m.symbol.replace('USDT', '/USDT');
+      renderCryptoChips(m.symbol);
       if (m.candles) makeChart(m.candles);
+      if (m.portfolio) setPortfolio(m.portfolio);
     }
     if (m.type === 'trading_status') {
       setTradingActive(m.trading_active);
@@ -709,6 +860,7 @@ function connect() {
       if (m.candles) {
         chartMarkers = [];
         document.querySelector('#symbolTitle').textContent = m.symbol.replace('USDT', '/USDT');
+        renderCryptoChips(m.symbol);
         makeChart(m.candles);
       }
     }
