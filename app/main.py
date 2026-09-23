@@ -26,7 +26,9 @@ portfolio = Portfolio(settings.initial_cash, settings.initial_cash)
 state = {
     "symbol": settings.default_symbol, "interval": settings.default_interval,
     "candles": [], "df": None, "latest_decision": None, "ticker": None,
-    "connected": False, "processing": False, "decision_count": 0
+    "connected": False, "processing": False, "decision_count": 0,
+    "trading_active": False,
+    "active_indicators": ["rsi", "macd", "ema", "bb", "atr", "volume"]
 }
 subscribers = set()
 stream_task = None
@@ -68,23 +70,46 @@ def append_candle(candle):
         state["candles"][-1] = candle
     state["candles"] = state["candles"][-300:]
 
-def laya_state(ctx):
-    p = portfolio.snapshot()
+def build_filtered_laya_state(ctx: dict, symbol: str, interval: str, portfolio_snapshot: dict, active_indicators: list[str]) -> dict:
+    active_set = set(active_indicators or [])
+    ms = {
+        "price": ctx["close"],
+        "return_1_percent": ctx["return_1"],
+        "return_5_percent": ctx["return_5"],
+        "trend": ctx["trend"]
+    }
+    if "rsi" in active_set and ctx.get("rsi") is not None:
+        ms["rsi_14"] = ctx["rsi"]
+    if "macd" in active_set:
+        if ctx.get("macd") is not None: ms["macd"] = ctx["macd"]
+        if ctx.get("macd_signal") is not None: ms["macd_signal"] = ctx["macd_signal"]
+        if ctx.get("macd_hist") is not None: ms["macd_histogram"] = ctx["macd_hist"]
+    if "ema" in active_set:
+        if ctx.get("ema20") is not None: ms["ema_20"] = ctx["ema20"]
+        if ctx.get("ema50") is not None: ms["ema_50"] = ctx["ema50"]
+    if "bb" in active_set and ctx.get("bb_position") is not None:
+        ms["bollinger_position"] = ctx["bb_position"]
+    if "atr" in active_set:
+        if ctx.get("atr") is not None: ms["atr"] = ctx["atr"]
+        if ctx.get("atr_pct") is not None: ms["atr_percent"] = ctx["atr_pct"]
+    if "volume" in active_set and ctx.get("volume_ratio") is not None:
+        ms["volume_ratio"] = ctx["volume_ratio"]
+
     return {
-        "asset": state["symbol"], "timeframe": state["interval"],
-        "market_state": {
-            "price": ctx["close"], "return_1_percent": ctx["return_1"], "return_5_percent": ctx["return_5"],
-            "trend": ctx["trend"], "rsi_14": ctx["rsi"], "macd": ctx["macd"],
-            "macd_signal": ctx["macd_signal"], "macd_histogram": ctx["macd_hist"],
-            "ema_20": ctx["ema20"], "ema_50": ctx["ema50"], "bollinger_position": ctx["bb_position"],
-            "atr": ctx["atr"], "atr_percent": ctx["atr_pct"], "volume_ratio": ctx["volume_ratio"]
-        },
+        "asset": symbol,
+        "timeframe": interval,
+        "market_state": ms,
         "paper_position": {
-            "cash": p["cash"], "quantity": p["quantity"], "average_entry": p["avg_entry"],
-            "unrealized_pnl": p["unrealized_pnl"]
+            "cash": portfolio_snapshot["cash"],
+            "quantity": portfolio_snapshot["quantity"],
+            "average_entry": portfolio_snapshot["avg_entry"],
+            "unrealized_pnl": portfolio_snapshot["unrealized_pnl"]
         },
         "decision_policy": "Paper trading only. Prefer HOLD when signals conflict."
     }
+
+def laya_state(ctx):
+    return build_filtered_laya_state(ctx, state["symbol"], state["interval"], portfolio.snapshot(), state["active_indicators"])
 
 async def process_closed_candle():
     if state["processing"] or state["df"] is None or len(state["df"]) < 60: return
@@ -156,8 +181,72 @@ async def bootstrap():
         "symbol":state["symbol"],"interval":state["interval"],"candles":state["candles"],"ticker":ticker,
         "portfolio":portfolio.snapshot(),"latest_decision":state["latest_decision"],
         "decisions":db.recent_decisions(state["symbol"]),"trades":db.recent_trades(state["symbol"]),
+        "trading_active": state["trading_active"], "active_indicators": state["active_indicators"],
         "laya":{"enabled":settings.laya_enabled,"loaded":laya.agent is not None,
                 "error":laya.load_error,"model":settings.laya_model}
+    })
+
+@app.get("/api/trading/status")
+async def trading_status():
+    return JSONResponse({
+        "trading_active": state["trading_active"],
+        "symbol": state["symbol"],
+        "interval": state["interval"],
+        "active_indicators": state["active_indicators"]
+    })
+
+@app.post("/api/trading/toggle")
+async def trading_toggle(payload: dict | None = None):
+    if payload and "active" in payload:
+        state["trading_active"] = bool(payload["active"])
+    else:
+        state["trading_active"] = not state["trading_active"]
+
+    await broadcast({
+        "type": "trading_status",
+        "trading_active": state["trading_active"],
+        "symbol": state["symbol"],
+        "interval": state["interval"],
+        "active_indicators": state["active_indicators"]
+    })
+    return JSONResponse({"ok": True, "trading_active": state["trading_active"]})
+
+@app.post("/api/trading/config")
+async def trading_config(payload: dict):
+    global stream_task
+    symbol = str(payload.get("symbol", state["symbol"])).upper()
+    interval = str(payload.get("interval", state["interval"]))
+    active_indicators = payload.get("active_indicators", state["active_indicators"])
+
+    allowed = {"1m","3m","5m","15m","30m","1h","4h","1d"}
+    if interval not in allowed:
+        return JSONResponse({"error": f"Unsupported interval: {interval}"}, status_code=400)
+
+    state["active_indicators"] = list(active_indicators)
+    market_changed = (symbol != state["symbol"] or interval != state["interval"])
+    if market_changed:
+        if stream_task:
+            stream_task.cancel()
+            try: await stream_task
+            except asyncio.CancelledError: pass
+        await load_market(symbol, interval)
+        stream_task = asyncio.create_task(stream_loop(symbol, interval))
+
+    await broadcast({
+        "type": "trading_config",
+        "trading_active": state["trading_active"],
+        "symbol": state["symbol"],
+        "interval": state["interval"],
+        "active_indicators": state["active_indicators"],
+        "candles": state["candles"] if market_changed else None
+    })
+
+    return JSONResponse({
+        "ok": True,
+        "trading_active": state["trading_active"],
+        "symbol": state["symbol"],
+        "interval": state["interval"],
+        "active_indicators": state["active_indicators"]
     })
 
 @app.post("/api/config")
