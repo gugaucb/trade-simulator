@@ -19,6 +19,20 @@ class BinanceMarket:
                 for k in r.json()
             ]
 
+    async def fetch_and_cache_klines(self, db, symbol: str, interval: str, count: int = 300, force_refresh: bool = False):
+        symbol = symbol.upper()
+        if not force_refresh and db is not None:
+            cached = db.get_klines(symbol, interval, limit=count)
+            if len(cached) >= count:
+                return cached
+
+        limit = min(max(count, 10), 1000)
+        klines = await self.klines(symbol, interval, limit=limit)
+        if db is not None and klines:
+            db.save_klines(symbol, interval, klines)
+            return db.get_klines(symbol, interval, limit=count)
+        return klines
+
     async def ticker24h(self, symbol: str):
         url = f"{self.rest_url}/api/v3/ticker/24hr"
         async with httpx.AsyncClient(timeout=10) as client:

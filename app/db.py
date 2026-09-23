@@ -38,6 +38,18 @@ class Database:
                 position_after REAL NOT NULL,
                 realized_pnl REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS cached_klines (
+                symbol TEXT NOT NULL,
+                interval TEXT NOT NULL,
+                time INTEGER NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                PRIMARY KEY (symbol, interval, time)
+            );
+            CREATE INDEX IF NOT EXISTS idx_cached_klines_time ON cached_klines(symbol, interval, time);
             """)
 
     def add_decision(self, d: dict[str, Any]):
@@ -76,3 +88,48 @@ class Database:
                 (symbol, limit)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def save_klines(self, symbol: str, interval: str, klines: list[dict[str, Any]]) -> int:
+        symbol = symbol.upper()
+        with self.lock, self.conn:
+            self.conn.executemany(
+                """INSERT OR REPLACE INTO cached_klines (symbol, interval, time, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                [(symbol, interval, int(k["time"]), float(k["open"]), float(k["high"]),
+                  float(k["low"]), float(k["close"]), float(k["volume"]))
+                 for k in klines]
+            )
+        return len(klines)
+
+    def get_klines(self, symbol: str, interval: str, limit: int | None = None,
+                   start_time: int | None = None, end_time: int | None = None) -> list[dict[str, Any]]:
+        symbol = symbol.upper()
+        query = "SELECT time, open, high, low, close, volume FROM cached_klines WHERE symbol=? AND interval=?"
+        params: list[Any] = [symbol, interval]
+        if start_time is not None:
+            query += " AND time >= ?"
+            params.append(start_time)
+        if end_time is not None:
+            query += " AND time <= ?"
+            params.append(end_time)
+        if limit is not None:
+            query = f"SELECT * FROM ({query} ORDER BY time DESC LIMIT ?) ORDER BY time ASC"
+            params.append(limit)
+        else:
+            query += " ORDER BY time ASC"
+        with self.lock:
+            rows = self.conn.execute(query, params).fetchall()
+        return [{"time": r["time"], "open": r["open"], "high": r["high"], "low": r["low"],
+                 "close": r["close"], "volume": r["volume"], "closed": True} for r in rows]
+
+    def count_klines(self, symbol: str, interval: str) -> int:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) as cnt FROM cached_klines WHERE symbol=? AND interval=?",
+                (symbol.upper(), interval)
+            ).fetchone()
+        return int(row["cnt"]) if row else 0
+
+    def close(self):
+        with self.lock:
+            self.conn.close()
