@@ -167,10 +167,29 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
       <div id="confidenceBar" class="h-full bg-accent rounded-full transition-all duration-300" style="width:0%"></div>
     </div>
     
-    <div class="mt-4 grid grid-cols-3 gap-2 text-center text-[10px]">
-      <div class="rounded-xl bg-emerald-50 p-2.5 text-emerald-700 font-semibold border border-emerald-100">BUY<br><span class="text-[9px] font-normal text-emerald-600">≥ 40% conf</span></div>
+    <!-- Limiar Mínimo de Confiança Editável -->
+    <div class="mt-3.5 p-2.5 rounded-xl bg-slate-50 border border-line">
+      <div class="flex items-center justify-between text-xs">
+        <label for="inputConfidenceThreshold" class="font-medium text-slate-600 flex items-center gap-1.5">
+          <i data-lucide="sliders" class="w-3.5 text-accent"></i> Limiar Mínimo:
+        </label>
+        <div class="flex items-center gap-1">
+          <input id="inputConfidenceThreshold" type="number" min="5" max="95" step="5" value="40"
+                 onchange="updateConfidenceThreshold(this.value)"
+                 class="w-14 px-1.5 py-1 text-right text-xs font-bold bg-white border border-line rounded-lg text-ink focus:border-accent focus:outline-none">
+          <span class="text-xs font-semibold text-slate-500">%</span>
+        </div>
+      </div>
+      <div class="mt-1 flex items-center justify-between text-[10px] text-slate-400">
+        <span>Agressividade do Laya</span>
+        <span id="threshDesc" class="font-medium text-accent">Agressivo (≥ 40%)</span>
+      </div>
+    </div>
+
+    <div class="mt-3 grid grid-cols-3 gap-2 text-center text-[10px]">
+      <div class="rounded-xl bg-emerald-50 p-2.5 text-emerald-700 font-semibold border border-emerald-100">BUY<br><span id="labelBuyThresh" class="text-[9px] font-normal text-emerald-600">≥ 40% conf</span></div>
       <div class="rounded-xl bg-slate-50 p-2.5 text-slate-600 font-semibold border border-slate-200">HOLD<br><span class="text-[9px] font-normal text-slate-500">neutro / ruído</span></div>
-      <div class="rounded-xl bg-rose-50 p-2.5 text-rose-700 font-semibold border border-rose-100">SELL<br><span class="text-[9px] font-normal text-rose-600">≥ 40% conf</span></div>
+      <div class="rounded-xl bg-rose-50 p-2.5 text-rose-700 font-semibold border border-rose-100">SELL<br><span id="labelSellThresh" class="text-[9px] font-normal text-rose-600">≥ 40% conf</span></div>
     </div>
 
     <!-- Start / Stop Action Button -->
@@ -794,11 +813,64 @@ async function updateIndicatorsConfig() {
   }
 }
 
+let currentConfidenceThreshold = 0.40;
+
+function syncConfidenceThresholdUI(thresh) {
+  if (thresh === undefined || thresh === null) return;
+  const num = typeof thresh === 'number' ? thresh : parseFloat(thresh);
+  if (isNaN(num)) return;
+  currentConfidenceThreshold = num;
+  const pct = Math.round(num * 100);
+  
+  const input = document.getElementById('inputConfidenceThreshold');
+  if (input && document.activeElement !== input) {
+    input.value = pct;
+  }
+  
+  const buyLabel = document.getElementById('labelBuyThresh');
+  if (buyLabel) buyLabel.textContent = `≥ ${pct}% conf`;
+  
+  const sellLabel = document.getElementById('labelSellThresh');
+  if (sellLabel) sellLabel.textContent = `≥ ${pct}% conf`;
+  
+  const desc = document.getElementById('threshDesc');
+  if (desc) {
+    if (pct < 35) desc.textContent = `Ultra Agressivo (≥ ${pct}%)`;
+    else if (pct <= 45) desc.textContent = `Agressivo (≥ ${pct}%)`;
+    else if (pct <= 60) desc.textContent = `Moderado (≥ ${pct}%)`;
+    else desc.textContent = `Conservador (≥ ${pct}%)`;
+  }
+}
+
+async function updateConfidenceThreshold(val) {
+  let pct = parseFloat(val);
+  if (isNaN(pct)) pct = 40;
+  pct = Math.max(5, Math.min(95, pct));
+  const thresh = pct / 100.0;
+  syncConfidenceThresholdUI(thresh);
+  
+  try {
+    const res = await fetch('/api/trading/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confidence_threshold: thresh })
+    });
+    const data = await res.json();
+    if (data.confidence_threshold !== undefined) {
+      syncConfidenceThresholdUI(data.confidence_threshold);
+    }
+  } catch (err) {
+    console.error('Failed to update confidence threshold:', err);
+  }
+}
+
 function addDecision(d) {
   const isLive = Boolean(d.is_live_trading);
   const isExecuted = Boolean(d.executed);
   const action = (d.action || 'hold').toLowerCase();
   const confPct = Math.round((d.confidence || 0) * 100);
+  const threshPct = Math.round((d.threshold || currentConfidenceThreshold || 0.40) * 100);
+  const status = d.execution_status || (isExecuted ? 'executed' : (isLive ? 'filtered' : 'paused'));
 
   if (isLive && isExecuted) {
     applyMarker(d);
@@ -809,11 +881,11 @@ function addDecision(d) {
   let badgeTitle = 'OBSERVAÇÃO';
   let iconName = 'eye';
 
-  if (!isLive) {
+  if (!isLive || status === 'paused') {
     badgeTitle = 'OBSERVAÇÃO · Laya ' + action.toUpperCase() + ' · ' + confPct + '%';
     iconName = 'eye';
     color = 'text-slate-500';
-  } else if (isExecuted) {
+  } else if (status === 'executed' || isExecuted) {
     iconName = 'zap';
     if (action === 'buy') {
       color = 'text-emerald-600';
@@ -824,24 +896,38 @@ function addDecision(d) {
     } else {
       badgeTitle = 'EXECUÇÃO: HOLD';
     }
+  } else if (status === 'already_in_position') {
+    iconName = 'shield-check';
+    color = 'text-blue-600';
+    badgeTitle = 'MANTER LONG: BUY · ' + confPct + '% (Já em posição)';
+  } else if (status === 'no_position_to_sell') {
+    iconName = 'shield';
+    color = 'text-slate-500';
+    badgeTitle = 'MANTER CASH: SELL · ' + confPct + '% (Sem custódia)';
+  } else if (status === 'insufficient_cash') {
+    iconName = 'alert-triangle';
+    color = 'text-amber-600';
+    badgeTitle = 'SEM SALDO: BUY · ' + confPct + '% (Cash insuficiente)';
+  } else if (status === 'low_confidence') {
+    iconName = 'filter';
+    color = 'text-amber-600';
+    badgeTitle = 'SINAL FRACO: ' + action.toUpperCase() + ' (' + confPct + '% < ' + threshPct + '%)';
+  } else if (action === 'hold') {
+    iconName = 'pause-circle';
+    color = 'text-slate-500';
+    badgeTitle = 'DECISÃO: HOLD · ' + confPct + '%';
   } else {
-    if (action === 'buy') {
-      iconName = 'filter';
-      color = 'text-amber-600';
-      badgeTitle = 'SINAL FILTRADO: BUY (' + confPct + '% < 40%)';
-    } else if (action === 'sell') {
-      iconName = 'filter';
-      color = 'text-amber-600';
-      badgeTitle = 'SINAL FILTRADO: SELL (' + confPct + '% < 40%)';
-    } else {
-      iconName = 'pause-circle';
-      color = 'text-slate-500';
-      badgeTitle = 'DECISÃO: HOLD · ' + confPct + '%';
-    }
+    iconName = 'filter';
+    color = 'text-amber-600';
+    badgeTitle = 'FILTRADO: ' + action.toUpperCase() + ' · ' + confPct + '%';
   }
 
+  const reasonDetail = d.filter_reason || d.reason || '';
+  const latencyStr = Number(d.latency_ms || 0).toFixed(1) + 'ms';
+  const subtitle = reasonDetail ? (reasonDetail + ' · ' + latencyStr) : (d.reason + ' · ' + latencyStr);
+
   row.className = 'p-3 flex items-center gap-3';
-  row.innerHTML = '<div class="w-8 h-8 rounded-lg bg-slate-50 grid place-items-center"><i data-lucide="' + iconName + '" class="w-4 ' + color + '"></i></div><div class="min-w-0 flex-1"><div class="text-xs font-semibold ' + color + '">' + badgeTitle + '</div><div class="text-[10px] text-slate-400 truncate">' + d.reason + ' · ' + Number(d.latency_ms || 0).toFixed(1) + 'ms</div></div><div class="text-right"><div class="text-xs font-medium">' + money(d.price) + '</div><div class="text-[10px] text-slate-400">' + new Date(d.ts).toLocaleTimeString() + '</div></div>';
+  row.innerHTML = '<div class="w-8 h-8 rounded-lg bg-slate-50 grid place-items-center"><i data-lucide="' + iconName + '" class="w-4 ' + color + '"></i></div><div class="min-w-0 flex-1"><div class="text-xs font-semibold ' + color + '">' + badgeTitle + '</div><div class="text-[10px] text-slate-400 truncate" title="' + subtitle.replace(/"/g, '&quot;') + '">' + subtitle + '</div></div><div class="text-right"><div class="text-xs font-medium">' + money(d.price) + '</div><div class="text-[10px] text-slate-400">' + new Date(d.ts).toLocaleTimeString() + '</div></div>';
   el.prepend(row);
   while (el.children.length > 25) el.lastChild.remove();
   lucide.createIcons();
@@ -924,6 +1010,7 @@ async function bootstrap() {
   makeChart(d.candles);
   setPortfolio(d.portfolio);
   if (d.trading_active !== undefined) setTradingActive(d.trading_active);
+  if (d.confidence_threshold !== undefined) syncConfidenceThresholdUI(d.confidence_threshold);
   if (d.active_indicators) syncIndicatorsUI(d.active_indicators);
   document.querySelector('#modelState').textContent = d.laya.loaded ? 'Laya typed-decisions · local ready' : (d.laya.enabled ? 'Laya unavailable · fallback' : 'Laya disabled');
   if (d.latest_decision) setAction(d.latest_decision);
@@ -957,6 +1044,7 @@ function connect() {
     }
     if (m.type === 'decision') {
       setAction(m.decision);
+      if (m.confidence_threshold !== undefined) syncConfidenceThresholdUI(m.confidence_threshold);
       if (m.portfolio) setPortfolio(m.portfolio);
       addDecision(m.decision);
       if (m.trade) {
@@ -977,10 +1065,12 @@ function connect() {
     }
     if (m.type === 'trading_status') {
       setTradingActive(m.trading_active);
+      if (m.confidence_threshold !== undefined) syncConfidenceThresholdUI(m.confidence_threshold);
       if (m.portfolio) setPortfolio(m.portfolio);
     }
     if (m.type === 'trading_config') {
       setTradingActive(m.trading_active);
+      if (m.confidence_threshold !== undefined) syncConfidenceThresholdUI(m.confidence_threshold);
       if (m.active_indicators) syncIndicatorsUI(m.active_indicators);
       if (m.candles) {
         chartMarkers = [];

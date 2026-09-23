@@ -28,6 +28,7 @@ state = {
     "candles": [], "df": None, "latest_decision": None, "ticker": None,
     "connected": False, "processing": False, "decision_count": 0,
     "trading_active": False,
+    "confidence_threshold": 0.40,
     "active_indicators": ["rsi", "macd", "ema", "bb", "atr", "volume"],
     "last_processed_candle_time": None
 }
@@ -150,30 +151,58 @@ async def process_closed_candle():
         portfolio.mark(price)
         trade = None
 
-        conf_threshold = 0.40  # Aggressive mode (exceeds random 33.3% prior)
-        if state["trading_active"]:
-            if action == "buy" and decision["confidence"] >= conf_threshold and portfolio.quantity <= 1e-12:
-                if portfolio.cash > 1.0:
-                    qty = portfolio.buy(price, 0.25)
-                    if qty:
-                        trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"BUY",
-                                 "price":price,"quantity":qty,"cash_after":portfolio.cash,
-                                 "position_after":portfolio.quantity,"realized_pnl":0.0}
-                        db.add_trade(trade)
+        conf_threshold = float(state.get("confidence_threshold", 0.40))
+        execution_status = "hold"
+        filter_reason = ""
 
-            elif action == "sell" and decision["confidence"] >= conf_threshold and portfolio.quantity > 0:
+        if action == "hold":
+            execution_status = "hold"
+            filter_reason = "Laya recomendou neutralidade (HOLD)"
+        elif not state["trading_active"]:
+            execution_status = "paused"
+            filter_reason = "Trading desativado (Modo Observação)"
+            decision["reason"] = f"{decision.get('reason', '')} [Trading Pausado - Modo Observação]"
+        elif decision["confidence"] < conf_threshold:
+            execution_status = "low_confidence"
+            conf_pct = round(decision["confidence"] * 100, 1)
+            thresh_pct = round(conf_threshold * 100, 1)
+            filter_reason = f"Confiança insuficiente ({conf_pct}% < {thresh_pct}%)"
+        elif action == "buy":
+            if portfolio.quantity > 1e-12:
+                execution_status = "already_in_position"
+                filter_reason = f"Já posicionado em {state['symbol']} ({portfolio.quantity:.6f})"
+            elif portfolio.cash <= 1.0:
+                execution_status = "insufficient_cash"
+                filter_reason = "Saldo em cash insuficiente para compra"
+            else:
+                qty = portfolio.buy(price, 0.25)
+                if qty:
+                    trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"BUY",
+                             "price":price,"quantity":qty,"cash_after":portfolio.cash,
+                             "position_after":portfolio.quantity,"realized_pnl":0.0}
+                    db.add_trade(trade)
+                    execution_status = "executed"
+                    filter_reason = f"Compra executada a ${price:,.2f}"
+        elif action == "sell":
+            if portfolio.quantity <= 1e-12:
+                execution_status = "no_position_to_sell"
+                filter_reason = f"Sem custódia de {state['symbol']} para venda (100% em cash)"
+            else:
                 result = portfolio.sell(price, 1.0)
                 if result:
                     trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"SELL",
                              "price":price,"quantity":result["quantity"],"cash_after":portfolio.cash,
                              "position_after":portfolio.quantity,"realized_pnl":result["realized_pnl"]}
                     db.add_trade(trade)
-        else:
-            decision["reason"] = f"{decision.get('reason', '')} [Trading Pausado - Modo Observação]"
+                    execution_status = "executed"
+                    filter_reason = f"Venda executada a ${price:,.2f} (PnL: ${result['realized_pnl']:+,.2f})"
 
         record = {"ts":datetime.now(timezone.utc).isoformat(),"candle_time":current_candle_time,
                   "symbol":state["symbol"],"interval":state["interval"],"price":price,
                   "action":action,"confidence":decision["confidence"],"latency_ms":decision["latency_ms"],
+                  "threshold": conf_threshold,
+                  "execution_status": execution_status,
+                  "filter_reason": filter_reason,
                   "indicators":ctx,"reason":decision["reason"],"model":decision["model"],
                   "is_live_trading": bool(state["trading_active"]),
                   "executed": bool(trade is not None),
@@ -185,7 +214,8 @@ async def process_closed_candle():
             "decision":record,
             "trade":trade,
             "portfolio":portfolio.snapshot(),
-            "trading_active":state["trading_active"]
+            "trading_active":state["trading_active"],
+            "confidence_threshold": conf_threshold
         })
     finally:
         state["processing"] = False
@@ -219,6 +249,7 @@ async def bootstrap():
         "portfolio":portfolio.snapshot(),"latest_decision":state["latest_decision"],
         "decisions":db.recent_decisions(state["symbol"]),"trades":db.recent_trades(state["symbol"]),
         "trading_active": state["trading_active"], "active_indicators": state["active_indicators"],
+        "confidence_threshold": state.get("confidence_threshold", 0.40),
         "laya":{"enabled":settings.laya_enabled,"loaded":laya.agent is not None,
                 "error":laya.load_error,"model":settings.laya_model}
     })
@@ -227,6 +258,7 @@ async def bootstrap():
 async def trading_status():
     return JSONResponse({
         "trading_active": state["trading_active"],
+        "confidence_threshold": state.get("confidence_threshold", 0.40),
         "symbol": state["symbol"],
         "interval": state["interval"],
         "active_indicators": state["active_indicators"]
@@ -264,6 +296,7 @@ async def trading_toggle(payload: dict | None = None):
     await broadcast({
         "type": "trading_status",
         "trading_active": state["trading_active"],
+        "confidence_threshold": state.get("confidence_threshold", 0.40),
         "symbol": state["symbol"],
         "interval": state["interval"],
         "active_indicators": state["active_indicators"],
@@ -272,6 +305,7 @@ async def trading_toggle(payload: dict | None = None):
     return JSONResponse({
         "ok": True,
         "trading_active": state["trading_active"],
+        "confidence_threshold": state.get("confidence_threshold", 0.40),
         "portfolio": snap,
         "liquidated_trades": liquidated_trades
     })
@@ -282,6 +316,14 @@ async def trading_config(payload: dict):
     symbol = str(payload.get("symbol", state["symbol"])).upper()
     interval = str(payload.get("interval", state["interval"]))
     active_indicators = payload.get("active_indicators", state["active_indicators"])
+
+    if "confidence_threshold" in payload:
+        try:
+            ct = float(payload["confidence_threshold"])
+            if 0.05 <= ct <= 0.95:
+                state["confidence_threshold"] = round(ct, 4)
+        except (ValueError, TypeError):
+            pass
 
     allowed = {"1m","3m","5m","15m","30m","1h","4h","1d"}
     if interval not in allowed:
@@ -300,6 +342,7 @@ async def trading_config(payload: dict):
     await broadcast({
         "type": "trading_config",
         "trading_active": state["trading_active"],
+        "confidence_threshold": state.get("confidence_threshold", 0.40),
         "symbol": state["symbol"],
         "interval": state["interval"],
         "active_indicators": state["active_indicators"],
@@ -309,6 +352,7 @@ async def trading_config(payload: dict):
     return JSONResponse({
         "ok": True,
         "trading_active": state["trading_active"],
+        "confidence_threshold": state.get("confidence_threshold", 0.40),
         "symbol": state["symbol"],
         "interval": state["interval"],
         "active_indicators": state["active_indicators"]
