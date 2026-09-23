@@ -1,5 +1,11 @@
 import asyncio
+import hashlib
+import json
 import time
+
+def compute_state_hash(state: dict) -> str:
+    serialized = json.dumps(state, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 class LayaDecisionEngine:
     def __init__(self, enabled=True, model_name="typed-decisions"):
@@ -63,3 +69,31 @@ class LayaDecisionEngine:
             return {"action":"hold","confidence":0.0,"setup_quality":None,
                     "latency_ms":(time.perf_counter()-started)*1000,
                     "model":self.model_name,"reason":f"Laya error: {exc}"}
+
+    async def decide_cached(self, state: dict, db=None, force_refresh: bool = False) -> dict:
+        shash = compute_state_hash(state)
+        symbol = state.get("asset", "")
+        candle_time = state.get("candle_time")
+
+        if not force_refresh and db is not None:
+            cached = db.get_laya_cache(shash)
+            if cached:
+                return {
+                    "action": cached["action"],
+                    "confidence": cached["confidence"],
+                    "setup_quality": cached.get("setup_quality"),
+                    "latency_ms": 0.0,
+                    "model": cached.get("model", self.model_name),
+                    "reason": cached.get("reason", "Laya cached decision"),
+                    "cached": True,
+                    "state_hash": shash
+                }
+
+        decision = await self.decide(state)
+        decision["cached"] = False
+        decision["state_hash"] = shash
+
+        if db is not None:
+            db.save_laya_cache(shash, symbol, candle_time, decision)
+
+        return decision

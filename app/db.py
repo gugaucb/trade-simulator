@@ -50,6 +50,18 @@ class Database:
                 PRIMARY KEY (symbol, interval, time)
             );
             CREATE INDEX IF NOT EXISTS idx_cached_klines_time ON cached_klines(symbol, interval, time);
+            CREATE TABLE IF NOT EXISTS laya_cache (
+                state_hash TEXT PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                candle_time INTEGER,
+                action TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                setup_quality TEXT,
+                reason TEXT,
+                model TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_laya_cache_sym ON laya_cache(symbol, candle_time);
             """)
 
     def add_decision(self, d: dict[str, Any]):
@@ -129,6 +141,34 @@ class Database:
                 (symbol.upper(), interval)
             ).fetchone()
         return int(row["cnt"]) if row else 0
+
+    def get_laya_cache(self, state_hash: str) -> dict[str, Any] | None:
+        with self.lock:
+            row = self.conn.execute(
+                "SELECT * FROM laya_cache WHERE state_hash=?",
+                (state_hash,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_laya_cache(self, state_hash: str, symbol: str, candle_time: int | None, decision: dict[str, Any]):
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        with self.lock, self.conn:
+            self.conn.execute(
+                """INSERT OR REPLACE INTO laya_cache 
+                (state_hash, symbol, candle_time, action, confidence, setup_quality, reason, model, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (state_hash, symbol.upper(), candle_time, decision["action"],
+                 float(decision.get("confidence", 0.0)), decision.get("setup_quality"),
+                 decision.get("reason", ""), decision.get("model", ""), now)
+            )
+
+    def clear_laya_cache(self, symbol: str | None = None):
+        with self.lock, self.conn:
+            if symbol:
+                self.conn.execute("DELETE FROM laya_cache WHERE symbol=?", (symbol.upper(),))
+            else:
+                self.conn.execute("DELETE FROM laya_cache")
 
     def close(self):
         with self.lock:
