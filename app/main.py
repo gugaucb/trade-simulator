@@ -13,6 +13,8 @@ from .indicators import enrich, latest_context
 from .laya_engine import LayaDecisionEngine
 from .market import BinanceMarket
 from .portfolio import Portfolio
+from .backtest import BacktestEngine, BacktestConfig
+from .strategies import get_strategy, list_available_strategies
 
 app = FastAPI(title=settings.app_name)
 templates = Jinja2Templates(directory="app/templates")
@@ -185,3 +187,137 @@ async def live_socket(ws: WebSocket):
         while True: await ws.receive_text()
     except (WebSocketDisconnect, Exception):
         subscribers.discard(ws)
+
+@app.get("/api/backtest/strategies")
+async def backtest_strategies():
+    return JSONResponse(list_available_strategies())
+
+@app.post("/api/backtest/run")
+async def backtest_run(payload: dict):
+    symbol = str(payload.get("symbol", "BTCUSDT")).upper()
+    interval = str(payload.get("interval", "1h"))
+    allowed_intervals = {"1m","3m","5m","15m","30m","1h","4h","1d"}
+    if interval not in allowed_intervals:
+        return JSONResponse({"error": f"Unsupported interval: {interval}"}, status_code=400)
+
+    candle_count = int(payload.get("candle_count", 300))
+    strategy_ids = payload.get("strategy_ids", ["buy_and_hold", "rsi_macd", "ema_cross", "laya_pure", "laya_confluence"])
+    if not strategy_ids:
+        strategy_ids = ["buy_and_hold"]
+
+    initial_cash = float(payload.get("initial_cash", 10000.0))
+    fee_rate = float(payload.get("fee_rate", 0.001))
+    slippage_rate = float(payload.get("slippage_rate", 0.0005))
+    position_size_pct = float(payload.get("position_size_pct", 1.0))
+    stop_loss_pct = payload.get("stop_loss_pct")
+    if stop_loss_pct is not None and str(stop_loss_pct).strip():
+        stop_loss_pct = float(stop_loss_pct)
+    else:
+        stop_loss_pct = None
+
+    take_profit_pct = payload.get("take_profit_pct")
+    if take_profit_pct is not None and str(take_profit_pct).strip():
+        take_profit_pct = float(take_profit_pct)
+    else:
+        take_profit_pct = None
+
+    use_laya_cache = bool(payload.get("use_laya_cache", True))
+    force_fresh = bool(payload.get("force_fresh_data", False))
+
+    # 1. Fetch & cache historical candles
+    candles = await market.fetch_and_cache_klines(db, symbol, interval, candle_count, force_refresh=force_fresh)
+    if not candles or len(candles) < 10:
+        return JSONResponse({"error": "Insufficient candle data returned for backtest"}, status_code=400)
+
+    # 2. Enrich data
+    df = enrich(pd.DataFrame(candles))
+
+    # 3. Instantiate strategies
+    strategies = []
+    needs_laya = False
+    for sid in strategy_ids:
+        try:
+            s = get_strategy(sid)
+            strategies.append(s)
+            if s.requires_laya:
+                needs_laya = True
+        except Exception:
+            pass
+
+    if not strategies:
+        strategies = [get_strategy("buy_and_hold")]
+
+    # 4. Pre-compute/retrieve decisions if needed
+    laya_decisions = {}
+    if needs_laya:
+        total_candles = len(candles)
+        for i, c in enumerate(candles):
+            sub_df = df.iloc[:i+1]
+            ctx = latest_context(sub_df)
+            ts = int(c["time"])
+            state_payload = {
+                "asset": symbol,
+                "timeframe": interval,
+                "candle_time": ts,
+                "market_state": {
+                    "price": ctx["close"],
+                    "return_1_percent": ctx["return_1"],
+                    "return_5_percent": ctx["return_5"],
+                    "trend": ctx["trend"],
+                    "rsi_14": ctx["rsi"],
+                    "macd": ctx["macd"],
+                    "macd_signal": ctx["macd_signal"],
+                    "macd_histogram": ctx["macd_hist"],
+                    "ema_20": ctx["ema20"],
+                    "ema_50": ctx["ema50"],
+                    "bollinger_position": ctx["bb_position"],
+                    "atr": ctx["atr"],
+                    "atr_percent": ctx["atr_pct"],
+                    "volume_ratio": ctx["volume_ratio"]
+                },
+                "paper_position": {"cash": initial_cash, "quantity": 0.0, "average_entry": 0.0, "unrealized_pnl": 0.0},
+                "decision_policy": "Paper trading only. Prefer HOLD when signals conflict."
+            }
+            dec = await laya.decide_cached(state_payload, db, force_refresh=not use_laya_cache)
+            laya_decisions[ts] = dec
+
+            if i % 15 == 0 or i == total_candles - 1:
+                await broadcast({
+                    "type": "backtest_progress",
+                    "current": i + 1,
+                    "total": total_candles,
+                    "symbol": symbol,
+                    "cached": dec.get("cached", False),
+                    "pct": round(((i + 1) / total_candles) * 100, 1)
+                })
+
+    # 5. Run simulation
+    config = BacktestConfig(
+        initial_cash=initial_cash,
+        fee_rate=fee_rate,
+        slippage_rate=slippage_rate,
+        position_size_pct=position_size_pct,
+        stop_loss_pct=stop_loss_pct,
+        take_profit_pct=take_profit_pct
+    )
+    engine = BacktestEngine(config)
+    comparison = engine.run_comparison(strategies, candles, laya_decisions)
+    comparison["symbol"] = symbol
+    comparison["interval"] = interval
+    comparison["candle_count"] = len(candles)
+    comparison["config"] = {
+        "initial_cash": initial_cash,
+        "fee_rate": fee_rate,
+        "slippage_rate": slippage_rate,
+        "position_size_pct": position_size_pct,
+        "stop_loss_pct": stop_loss_pct,
+        "take_profit_pct": take_profit_pct
+    }
+
+    return JSONResponse(comparison)
+
+@app.post("/api/backtest/clear-cache")
+async def backtest_clear_cache(payload: dict | None = None):
+    symbol = payload.get("symbol") if payload else None
+    db.clear_laya_cache(symbol)
+    return {"ok": True, "message": "Laya cache cleared"}
