@@ -220,14 +220,42 @@ async def trading_toggle(payload: dict | None = None):
     else:
         state["trading_active"] = not state["trading_active"]
 
+    liquidated_trades = []
+    if not state["trading_active"]:
+        liquidated_trades = portfolio.liquidate_all()
+        for t in liquidated_trades:
+            trade_record = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "symbol": t["symbol"],
+                "side": t["side"],
+                "price": t["price"],
+                "quantity": t["quantity"],
+                "cash_after": portfolio.cash,
+                "position_after": 0.0,
+                "realized_pnl": t["realized_pnl"]
+            }
+            db.add_trade(trade_record)
+            await broadcast({
+                "type": "trade",
+                "trade": trade_record,
+                "portfolio": portfolio.snapshot()
+            })
+
+    snap = portfolio.snapshot()
     await broadcast({
         "type": "trading_status",
         "trading_active": state["trading_active"],
         "symbol": state["symbol"],
         "interval": state["interval"],
-        "active_indicators": state["active_indicators"]
+        "active_indicators": state["active_indicators"],
+        "portfolio": snap
     })
-    return JSONResponse({"ok": True, "trading_active": state["trading_active"]})
+    return JSONResponse({
+        "ok": True,
+        "trading_active": state["trading_active"],
+        "portfolio": snap,
+        "liquidated_trades": liquidated_trades
+    })
 
 @app.post("/api/trading/config")
 async def trading_config(payload: dict):

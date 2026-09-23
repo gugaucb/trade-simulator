@@ -125,9 +125,36 @@ class Portfolio:
         pos["last_price"] = price
         return {"quantity": qty, "realized_pnl": pnl}
 
+    def liquidate_all(self) -> list[dict]:
+        """Liquidate 100% of all open positions across all symbols back into cash."""
+        trades = []
+        for sym, pos in list(self.holdings.items()):
+            qty = pos.get("quantity", 0.0)
+            if qty > 1e-12:
+                price = pos.get("last_price", 0.0)
+                if price <= 0:
+                    price = self.last_prices.get(sym, 0.0)
+                if price > 0:
+                    proceeds = qty * price
+                    pnl = (price - pos.get("avg_entry", 0.0)) * qty
+                    self.cash += proceeds
+                    self.realized_pnl += pnl
+                    pos["quantity"] = 0.0
+                    pos["avg_entry"] = 0.0
+                    trades.append({
+                        "symbol": sym,
+                        "side": "SELL",
+                        "price": price,
+                        "quantity": qty,
+                        "realized_pnl": pnl,
+                        "is_liquidation": True
+                    })
+        return trades
+
     def snapshot(self):
         curr = self.current_position
         active_unrealized = (curr["last_price"] - curr["avg_entry"]) * curr["quantity"] if curr["quantity"] > 0 else 0.0
+        active_pos_usd = curr["quantity"] * curr["last_price"] if curr["quantity"] > 0 else 0.0
         return {
             "initial_cash": self.initial_cash,
             "cash": self.cash,
@@ -135,6 +162,8 @@ class Portfolio:
             "quantity": curr["quantity"],
             "avg_entry": curr["avg_entry"],
             "last_price": curr["last_price"],
+            "position_usd": active_pos_usd,
+            "total_positions_usd": self.position_equity,
             "realized_pnl": self.realized_pnl,
             "equity": self.equity,
             "unrealized_pnl": self.unrealized_pnl,
@@ -143,3 +172,4 @@ class Portfolio:
             "pnl_pct": self.pnl_pct,
             "holdings": self.holdings
         }
+

@@ -76,14 +76,20 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
       <div id="pnl" class="text-xs mt-1 text-slate-400 font-medium">+$0.00 (0.00%)</div>
     </div>
     <div class="grid grid-cols-2 gap-2 mt-4">
-      <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+      <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100 flex flex-col justify-between">
         <div class="text-[10px] text-slate-400">Cash disponível</div>
         <div id="cash" class="font-semibold text-xs mt-0.5">$10,000.00</div>
+        <div class="text-[10px] text-slate-400 mt-0.5 font-medium">Liquidez livre</div>
       </div>
-      <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100">
+      <div class="rounded-xl bg-slate-50 p-2.5 border border-slate-100 flex flex-col justify-between">
         <div class="text-[10px] text-slate-400">Posição (<span id="balanceCoinCode">BTC</span>)</div>
         <div id="position" class="font-semibold text-xs mt-0.5">0.00000 BTC</div>
+        <div id="positionUsd" class="text-[10px] text-slate-500 mt-0.5 font-medium">≈ $0.00 USD</div>
       </div>
+    </div>
+    <div class="mt-3 pt-2.5 border-t border-line/60 flex items-center justify-between text-[10px] text-slate-500">
+      <span class="text-slate-400">Equação da Carteira:</span>
+      <span class="font-semibold font-mono text-slate-600">Cash + Posição = Equity</span>
     </div>
   </div>
   <div class="bg-white rounded-2xl border border-line p-4 shadow-soft">
@@ -554,8 +560,22 @@ function setPortfolio(p) {
   const currentSym = (p.active_symbol || document.querySelector('#symbolSelect').value || 'BTCUSDT');
   const activeCode = currentSym.replace('USDT', '');
   
+  let activeQty = p.quantity || 0;
+  let activePosUsd = (p.position_usd !== undefined) ? p.position_usd : 0;
+  
+  if (p.holdings && p.holdings[currentSym]) {
+    activeQty = p.holdings[currentSym].quantity || 0;
+    const lp = p.holdings[currentSym].last_price || p.last_price || 0;
+    activePosUsd = activeQty * lp;
+  } else if (p.last_price && activeQty > 0) {
+    activePosUsd = activeQty * p.last_price;
+  }
+  
   const posEl = document.querySelector('#position');
-  if (posEl) posEl.textContent = fmt(p.quantity, 5) + ' ' + activeCode;
+  if (posEl) posEl.textContent = fmt(activeQty, 5) + ' ' + activeCode;
+  
+  const posUsdEl = document.querySelector('#positionUsd');
+  if (posUsdEl) posUsdEl.textContent = '≈ ' + money(activePosUsd) + ' USD';
   
   const coinLabel = document.querySelector('#balanceCoinCode');
   if (coinLabel) coinLabel.textContent = activeCode;
@@ -921,6 +941,7 @@ function connect() {
     }
     if (m.type === 'trading_status') {
       setTradingActive(m.trading_active);
+      if (m.portfolio) setPortfolio(m.portfolio);
     }
     if (m.type === 'trading_config') {
       setTradingActive(m.trading_active);
@@ -931,12 +952,14 @@ function connect() {
         renderCryptoChips(m.symbol);
         makeChart(m.candles);
       }
+      if (m.portfolio) setPortfolio(m.portfolio);
     }
     if (m.type === 'portfolio') {
       setPortfolio(m.portfolio);
     }
     if (m.type === 'trade') {
       addTrade(m.trade);
+      if (m.portfolio) setPortfolio(m.portfolio);
       document.querySelector('#tradeCount').textContent = Number(document.querySelector('#tradeCount').textContent) + 1;
     }
     if (m.type === 'status') setLive(false);
