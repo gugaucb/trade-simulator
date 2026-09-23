@@ -13,6 +13,8 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     loss = (-delta.clip(upper=0)).rolling(14).mean()
     rs = gain / loss.replace(0, np.nan)
     x["rsi"] = 100 - (100 / (1 + rs))
+    x.loc[loss == 0, "rsi"] = 100.0
+    x["rsi"] = x["rsi"].fillna(50.0)
 
     ema12 = close.ewm(span=12, adjust=False).mean()
     ema26 = close.ewm(span=26, adjust=False).mean()

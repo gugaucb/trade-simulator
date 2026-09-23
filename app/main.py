@@ -28,7 +28,8 @@ state = {
     "candles": [], "df": None, "latest_decision": None, "ticker": None,
     "connected": False, "processing": False, "decision_count": 0,
     "trading_active": False,
-    "active_indicators": ["rsi", "macd", "ema", "bb", "atr", "volume"]
+    "active_indicators": ["rsi", "macd", "ema", "bb", "atr", "volume"],
+    "last_processed_candle_time": None
 }
 subscribers = set()
 stream_task = None
@@ -112,12 +113,16 @@ def laya_state(ctx):
     return build_filtered_laya_state(ctx, state["symbol"], state["interval"], portfolio.snapshot(), state["active_indicators"])
 
 async def process_closed_candle():
-    if state["processing"] or state["df"] is None or len(state["df"]) < 60: return
+    if state["processing"] or state["df"] is None or len(state["candles"]) < 20: return
+    current_candle_time = state["candles"][-1]["time"]
+    if state.get("last_processed_candle_time") == current_candle_time:
+        return
     state["processing"] = True
     try:
         state["df"] = enrich(pd.DataFrame(state["candles"]))
         ctx = latest_context(state["df"])
-        if any(ctx[k] is None for k in ["rsi","macd","ema20","ema50"]): return
+        if ctx.get("close") is None: return
+        state["last_processed_candle_time"] = current_candle_time
         state["decision_count"] += 1
         if state["decision_count"] % max(1, settings.decision_every_candles) != 0: return
 
@@ -127,29 +132,38 @@ async def process_closed_candle():
         portfolio.mark(price)
         trade = None
 
-        if action == "buy" and decision["confidence"] >= 0.55 and portfolio.quantity <= 1e-12:
-            qty = portfolio.buy(price, 0.25)
-            if qty:
-                trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"BUY",
-                         "price":price,"quantity":qty,"cash_after":portfolio.cash,
-                         "position_after":portfolio.quantity,"realized_pnl":0.0}
-                db.add_trade(trade)
+        if state["trading_active"]:
+            if action == "buy" and decision["confidence"] >= 0.55 and portfolio.quantity <= 1e-12:
+                qty = portfolio.buy(price, 0.25)
+                if qty:
+                    trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"BUY",
+                             "price":price,"quantity":qty,"cash_after":portfolio.cash,
+                             "position_after":portfolio.quantity,"realized_pnl":0.0}
+                    db.add_trade(trade)
 
-        elif action == "sell" and decision["confidence"] >= 0.55 and portfolio.quantity > 0:
-            result = portfolio.sell(price, 1.0)
-            if result:
-                trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"SELL",
-                         "price":price,"quantity":result["quantity"],"cash_after":portfolio.cash,
-                         "position_after":portfolio.quantity,"realized_pnl":result["realized_pnl"]}
-                db.add_trade(trade)
+            elif action == "sell" and decision["confidence"] >= 0.55 and portfolio.quantity > 0:
+                result = portfolio.sell(price, 1.0)
+                if result:
+                    trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"SELL",
+                             "price":price,"quantity":result["quantity"],"cash_after":portfolio.cash,
+                             "position_after":portfolio.quantity,"realized_pnl":result["realized_pnl"]}
+                    db.add_trade(trade)
+        else:
+            decision["reason"] = f"{decision.get('reason', '')} [Trading Pausado - Modo Observação]"
 
-        record = {"ts":datetime.now(timezone.utc).isoformat(),"candle_time":state["candles"][-1]["time"],
+        record = {"ts":datetime.now(timezone.utc).isoformat(),"candle_time":current_candle_time,
                   "symbol":state["symbol"],"interval":state["interval"],"price":price,
-                  "confidence":decision["confidence"],"latency_ms":decision["latency_ms"],
+                  "action":action,"confidence":decision["confidence"],"latency_ms":decision["latency_ms"],
                   "indicators":ctx,"reason":decision["reason"],"model":decision["model"]}
         db.add_decision(record)
         state["latest_decision"] = record
-        await broadcast({"type":"decision","decision":record,"trade":trade,"portfolio":portfolio.snapshot()})
+        await broadcast({
+            "type":"decision",
+            "decision":record,
+            "trade":trade,
+            "portfolio":portfolio.snapshot(),
+            "trading_active":state["trading_active"]
+        })
     finally:
         state["processing"] = False
 
