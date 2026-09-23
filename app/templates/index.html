@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crypto Laya Trader</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+tailwind.config={theme:{extend:{colors:{ink:'#17191f',canvas:'#f7f8fb',line:'#e8eaf0',up:'#13b879',down:'#f04464',accent:'#6d5dfc'},boxShadow:{soft:'0 14px 45px rgba(25,30,45,.07)'}}}}
+</script>
+<style>
+body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.scrollbar::-webkit-scrollbar{width:6px}.scrollbar::-webkit-scrollbar-thumb{background:#d9dce5;border-radius:999px}
+.pulse{animation:pulse 1.8s infinite}@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+</style>
+</head>
+<body class="bg-canvas text-ink min-h-screen">
+<div class="min-h-screen flex">
+<aside class="w-[76px] bg-white border-r border-line flex flex-col items-center py-5 gap-5">
+  <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 grid place-items-center text-white shadow-soft"><i data-lucide="orbit" class="w-5"></i></div>
+  <div class="flex-1 flex flex-col gap-3">
+    <button class="w-10 h-10 rounded-xl bg-violet-50 text-accent grid place-items-center"><i data-lucide="chart-candlestick" class="w-5"></i></button>
+    <button class="w-10 h-10 rounded-xl text-slate-400 grid place-items-center"><i data-lucide="wallet" class="w-5"></i></button>
+    <button class="w-10 h-10 rounded-xl text-slate-400 grid place-items-center"><i data-lucide="history" class="w-5"></i></button>
+    <button class="w-10 h-10 rounded-xl text-slate-400 grid place-items-center"><i data-lucide="bot" class="w-5"></i></button>
+  </div>
+  <button class="w-10 h-10 rounded-xl text-slate-400 grid place-items-center"><i data-lucide="settings" class="w-5"></i></button>
+</aside>
+
+<main class="flex-1 min-w-0">
+<header class="h-[72px] bg-white border-b border-line flex items-center px-6 gap-7">
+  <div class="flex items-center gap-2 min-w-[190px]">
+    <div class="w-8 h-8 rounded-full bg-orange-100 grid place-items-center text-orange-500 font-bold">₿</div>
+    <div><div class="font-semibold leading-none">Crypto Laya</div><div class="text-[11px] text-slate-400 mt-1">paper trading terminal</div></div>
+  </div>
+  <div class="hidden lg:flex items-center gap-6 text-sm text-slate-500"><span class="font-medium text-accent border-b-2 border-accent pb-5 pt-5">BTC</span><span>ETH</span><span>SOL</span><span>BNB</span><span>Market</span></div>
+  <div class="ml-auto flex items-center gap-3">
+    <div id="liveBadge" class="flex items-center gap-2 px-3 py-2 rounded-full bg-slate-50 text-xs font-medium text-slate-500"><span class="w-2 h-2 rounded-full bg-slate-300"></span> Connecting</div>
+    <div class="px-3 py-2 rounded-xl bg-slate-50 text-sm">USDT <i data-lucide="chevron-down" class="inline w-4"></i></div>
+    <div class="w-9 h-9 rounded-full bg-slate-900 text-white grid place-items-center text-xs">LY</div>
+  </div>
+</header>
+
+<section class="p-5">
+<div class="grid grid-cols-12 gap-4">
+<aside class="col-span-12 xl:col-span-2 space-y-4">
+  <div class="bg-white rounded-2xl border border-line p-4 shadow-soft">
+    <div class="flex rounded-xl bg-slate-50 p-1 text-xs"><button class="flex-1 bg-white rounded-lg py-2 font-medium">Balance</button><button class="flex-1 py-2 text-slate-400">Stats</button></div>
+    <div class="mt-5"><div class="text-xs text-slate-400">Paper equity</div><div id="equity" class="text-2xl font-semibold mt-1">$10,000.00</div><div id="pnl" class="text-xs mt-1 text-slate-400">+$0.00 (0.00%)</div></div>
+    <div class="grid grid-cols-2 gap-3 mt-5"><div class="rounded-xl bg-slate-50 p-3"><div class="text-[10px] text-slate-400">Cash</div><div id="cash" class="font-semibold text-sm mt-1">$10k</div></div><div class="rounded-xl bg-slate-50 p-3"><div class="text-[10px] text-slate-400">Position</div><div id="position" class="font-semibold text-sm mt-1">0 BTC</div></div></div>
+  </div>
+  <div class="bg-white rounded-2xl border border-line p-4 shadow-soft">
+    <div class="flex items-center justify-between mb-3"><span class="font-semibold text-sm">Markets</span><i data-lucide="search" class="w-4 text-slate-400"></i></div>
+    <div id="marketList" class="space-y-1"></div>
+  </div>
+</aside>
+
+<section class="col-span-12 xl:col-span-7 space-y-4">
+  <div class="bg-white rounded-2xl border border-line shadow-soft overflow-hidden">
+    <div class="p-4 border-b border-line flex flex-wrap items-center gap-4">
+      <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-orange-100 text-orange-500 grid place-items-center font-bold">₿</div><div><div class="flex items-center gap-2"><span id="symbolTitle" class="font-semibold">BTC/USDT</span><span class="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-500">Spot</span></div><div id="price" class="text-xs text-slate-400 mt-1">Loading…</div></div></div>
+      <div class="ml-auto flex items-center gap-2">
+        <select id="symbolSelect" class="border border-line rounded-xl px-3 py-2 text-xs bg-white"><option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option><option>BNBUSDT</option><option>XRPUSDT</option><option>ADAUSDT</option></select>
+        <select id="intervalSelect" class="border border-line rounded-xl px-3 py-2 text-xs bg-white"><option value="1m">1m</option><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1D</option></select>
+      </div>
+    </div>
+    <div class="px-4 pt-3 flex items-center gap-5 text-xs text-slate-400"><span class="font-medium text-slate-700">Candles</span><span>Indicators</span><span>Signals</span><span class="ml-auto flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-up pulse"></span> Live market data</span></div>
+    <div id="chart" class="h-[420px] w-full"></div>
+    <div class="grid grid-cols-4 border-t border-line">
+      <div class="p-3 border-r border-line"><div class="text-[10px] text-slate-400">RSI 14</div><div id="rsi" class="font-semibold mt-1">—</div></div>
+      <div class="p-3 border-r border-line"><div class="text-[10px] text-slate-400">MACD</div><div id="macd" class="font-semibold mt-1">—</div></div>
+      <div class="p-3 border-r border-line"><div class="text-[10px] text-slate-400">Trend</div><div id="trend" class="font-semibold mt-1">—</div></div>
+      <div class="p-3"><div class="text-[10px] text-slate-400">Volume ratio</div><div id="volumeRatio" class="font-semibold mt-1">—</div></div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-line shadow-soft">
+    <div class="p-4 flex items-center justify-between border-b border-line"><div><div class="font-semibold text-sm">Decision stream</div><div class="text-xs text-slate-400 mt-1">Laya + quant context</div></div><div id="modelState" class="text-xs text-slate-400">Model loading…</div></div>
+    <div id="decisionLog" class="max-h-[250px] overflow-auto scrollbar divide-y divide-line"></div>
+  </div>
+</section>
+
+<aside class="col-span-12 xl:col-span-3 space-y-4">
+  <div class="bg-white rounded-2xl border border-line shadow-soft p-4">
+    <div class="flex items-center justify-between"><div class="font-semibold text-sm">Laya Signal</div><span id="actionBadge" class="text-[10px] px-2 py-1 rounded-full bg-slate-100 text-slate-500">HOLD</span></div>
+    <div class="mt-5 flex items-end justify-between"><div><div class="text-3xl font-semibold" id="confidence">0%</div><div class="text-xs text-slate-400 mt-1">confidence</div></div><div class="text-right"><div id="latency" class="font-semibold">— ms</div><div class="text-xs text-slate-400 mt-1">decision latency</div></div></div>
+    <div class="mt-4 h-2 bg-slate-100 rounded-full overflow-hidden"><div id="confidenceBar" class="h-full bg-accent rounded-full" style="width:0%"></div></div>
+    <div class="mt-5 grid grid-cols-3 gap-2 text-center text-[10px]"><div class="rounded-xl bg-emerald-50 p-3 text-emerald-700">BUY<br>•</div><div class="rounded-xl bg-slate-50 p-3 text-slate-600">HOLD<br>•</div><div class="rounded-xl bg-rose-50 p-3 text-rose-700">SELL<br>•</div></div>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-line shadow-soft p-4">
+    <div class="flex items-center justify-between mb-4"><span class="font-semibold text-sm">Quant context</span><i data-lucide="sliders-horizontal" class="w-4 text-slate-400"></i></div>
+    <div class="space-y-3 text-xs">
+      <div class="flex justify-between"><span class="text-slate-400">EMA 20 / 50</span><span id="ema" class="font-medium">—</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">Bollinger position</span><span id="bb" class="font-medium">—</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">ATR %</span><span id="atr" class="font-medium">—</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">5-candle return</span><span id="ret5" class="font-medium">—</span></div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-line shadow-soft p-4">
+    <div class="flex items-center justify-between mb-4"><span class="font-semibold text-sm">Paper execution</span><span class="text-[10px] px-2 py-1 rounded-full bg-violet-50 text-accent">SIM</span></div>
+    <div class="grid grid-cols-2 gap-3">
+      <div><div class="text-[10px] text-slate-400">Avg. entry</div><div id="entry" class="font-semibold mt-1">—</div></div>
+      <div><div class="text-[10px] text-slate-400">Unrealized</div><div id="unrealized" class="font-semibold mt-1">—</div></div>
+      <div><div class="text-[10px] text-slate-400">Realized</div><div id="realized" class="font-semibold mt-1">—</div></div>
+      <div><div class="text-[10px] text-slate-400">Trades</div><div id="tradeCount" class="font-semibold mt-1">0</div></div>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-2xl border border-line shadow-soft p-4">
+    <div class="font-semibold text-sm mb-3">Recent trades</div><div id="tradeLog" class="space-y-2 max-h-[190px] overflow-auto scrollbar"></div>
+  </div>
+</aside>
+</div>
+</section>
+</main>
+</div>
+
+<script>
+let chart,candleSeries,volumeSeries,ws,chartMarkers=[];
+const money=n=>'$'+Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmt=(n,d=2)=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+function setPortfolio(p){
+ document.querySelector('#equity').textContent=money(p.equity);
+ document.querySelector('#cash').textContent=money(p.cash);
+ document.querySelector('#position').textContent=fmt(p.quantity,5)+' '+document.querySelector('#symbolTitle').textContent.split('/')[0];
+ const pnl=document.querySelector('#pnl'); pnl.textContent=(p.pnl>=0?'+':'')+money(p.pnl)+' ('+p.pnl_pct.toFixed(2)+'%)'; pnl.className='text-xs mt-1 '+(p.pnl>=0?'text-up':'text-down');
+ document.querySelector('#entry').textContent=p.avg_entry?money(p.avg_entry):'—'; document.querySelector('#unrealized').textContent=money(p.unrealized_pnl); document.querySelector('#realized').textContent=money(p.realized_pnl);
+}
+function setAction(d){
+ if(!d)return; const a=d.action.toUpperCase(), b=document.querySelector('#actionBadge'); b.textContent=a;
+ b.className='text-[10px] px-2 py-1 rounded-full '+(a==='BUY'?'bg-emerald-50 text-emerald-700':a==='SELL'?'bg-rose-50 text-rose-700':'bg-slate-100 text-slate-500');
+ const c=Math.round((d.confidence||0)*100); document.querySelector('#confidence').textContent=c+'%'; document.querySelector('#confidenceBar').style.width=c+'%'; document.querySelector('#latency').textContent=Number(d.latency_ms||0).toFixed(1)+' ms'; updateQuant(d.indicators);
+}
+function addDecision(d){
+ applyMarker(d);
+ const el=document.querySelector('#decisionLog'), row=document.createElement('div'), color=d.action==='buy'?'text-emerald-600':d.action==='sell'?'text-rose-600':'text-slate-500';
+ row.className='p-3 flex items-center gap-3'; row.innerHTML='<div class="w-8 h-8 rounded-lg bg-slate-50 grid place-items-center"><i data-lucide="activity" class="w-4 '+color+'"></i></div><div class="min-w-0 flex-1"><div class="text-xs font-semibold '+color+'">'+d.action.toUpperCase()+' · '+Math.round((d.confidence||0)*100)+'%</div><div class="text-[10px] text-slate-400 truncate">'+d.reason+' · '+Number(d.latency_ms||0).toFixed(1)+'ms</div></div><div class="text-right"><div class="text-xs font-medium">'+money(d.price)+'</div><div class="text-[10px] text-slate-400">'+new Date(d.ts).toLocaleTimeString()+'</div></div>';
+ el.prepend(row); while(el.children.length>25)el.lastChild.remove(); lucide.createIcons();
+}
+function addTrade(t){
+ if(!t)return; const el=document.querySelector('#tradeLog'), row=document.createElement('div'), buy=t.side==='BUY'; row.className='flex items-center justify-between rounded-xl bg-slate-50 p-3';
+ row.innerHTML='<div><div class="text-xs font-semibold '+(buy?'text-emerald-600':'text-rose-600')+'">'+t.side+'</div><div class="text-[10px] text-slate-400">'+fmt(t.quantity,6)+' units</div></div><div class="text-right"><div class="text-xs font-semibold">'+money(t.price)+'</div><div class="text-[10px] text-slate-400">'+new Date(t.ts).toLocaleTimeString()+'</div></div>';
+ el.prepend(row);
+}
+function makeChart(candles){
+ const el=document.querySelector('#chart'); if(chart)chart.remove();
+ chart=LightweightCharts.createChart(el,{layout:{background:{color:'#fff'},textColor:'#8b91a1'},grid:{vertLines:{color:'#f0f1f5'},horzLines:{color:'#f0f1f5'}},rightPriceScale:{borderColor:'#eceef3'},timeScale:{borderColor:'#eceef3',timeVisible:true,secondsVisible:false}});
+ candleSeries=chart.addCandlestickSeries({upColor:'#13b879',downColor:'#f04464',borderVisible:false,wickUpColor:'#13b879',wickDownColor:'#f04464'});
+ volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:''}); volumeSeries.priceScale().applyOptions({scaleMargins:{top:.82,bottom:0}});
+ candleSeries.setData(candles.map(c=>({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close})));
+ volumeSeries.setData(candles.map(c=>({time:c.time,value:c.volume}))); chart.timeScale().fitContent();
+}
+function updateCandle(c){
+ if(!candleSeries)return;
+ candleSeries.update({time:c.time,open:c.open,high:c.high,low:c.low,close:c.close});
+ volumeSeries.update({time:c.time,value:c.volume});
+ document.querySelector('#price').textContent=money(c.close)+' · '+new Date(c.time*1000).toLocaleTimeString();
+}
+function applyMarker(d){
+ if(!d || !d.candle_time || !candleSeries) return;
+ const pos=d.action==='buy'?'belowBar':d.action==='sell'?'aboveBar':'inBar';
+ const color=d.action==='buy'?'#13b879':d.action==='sell'?'#f04464':'#8b91a1';
+ const shape=d.action==='buy'?'arrowUp':d.action==='sell'?'arrowDown':'circle';
+ chartMarkers.push({time:d.candle_time,position:pos,color,shape,text:d.action.toUpperCase()+' '+Math.round((d.confidence||0)*100)+'%'});
+ chartMarkers=chartMarkers.slice(-100);
+ candleSeries.setMarkers(chartMarkers);
+}
+function updateQuant(x){if(!x)return;document.querySelector('#rsi').textContent=x.rsi?.toFixed(1)||'—';document.querySelector('#macd').textContent=x.macd?.toFixed(2)||'—';document.querySelector('#trend').textContent=x.trend||'—';document.querySelector('#volumeRatio').textContent=(x.volume_ratio?.toFixed(2)||'—')+'x';document.querySelector('#ema').textContent=fmt(x.ema20,0)+' / '+fmt(x.ema50,0);document.querySelector('#bb').textContent=x.bb_position?.toFixed(2)||'—';document.querySelector('#atr').textContent=(x.atr_pct?.toFixed(2)||'—')+'%';document.querySelector('#ret5').textContent=(x.return_5>=0?'+':'')+(x.return_5?.toFixed(2)||'—')+'%';}
+function setLive(on){document.querySelector('#liveBadge').innerHTML='<span class="w-2 h-2 rounded-full '+(on?'bg-up pulse':'bg-down')+'"></span>'+(on?'Live':'Offline');}
+async function configure(){await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:document.querySelector('#symbolSelect').value,interval:document.querySelector('#intervalSelect').value})});}
+async function bootstrap(){
+ const d=await fetch('/api/bootstrap').then(r=>r.json()); document.querySelector('#symbolTitle').textContent=d.symbol.replace('USDT','/USDT'); document.querySelector('#symbolSelect').value=d.symbol; document.querySelector('#intervalSelect').value=d.interval; makeChart(d.candles); setPortfolio(d.portfolio);
+ document.querySelector('#modelState').textContent=d.laya.loaded?'Laya typed-decisions · ready':(d.laya.enabled?'Laya unavailable · HOLD fallback':'Laya disabled');
+ if(d.latest_decision)setAction(d.latest_decision);
+ (d.decisions||[]).slice().reverse().forEach(addDecision); (d.trades||[]).slice().reverse().forEach(addTrade); document.querySelector('#tradeCount').textContent=d.trades.length;
+ const syms=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT']; document.querySelector('#marketList').innerHTML=syms.map(s=>'<button onclick="pick(\''+s+'\')" class="w-full flex items-center justify-between p-2 rounded-lg hover:bg-slate-50 text-xs"><span class="font-medium">'+s.replace('USDT','')+'</span><span class="text-slate-400">USDT</span></button>').join('');
+}
+function pick(s){document.querySelector('#symbolSelect').value=s;configure();}
+function connect(){
+ ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/ws/live'); ws.onopen=()=>setLive(true); ws.onclose=()=>{setLive(false);setTimeout(connect,2000)};
+ ws.onmessage=e=>{const m=JSON.parse(e.data); if(m.type==='candle'){updateCandle(m.candle);setPortfolio(m.portfolio)} if(m.type==='decision'){setAction(m.decision);setPortfolio(m.portfolio);addDecision(m.decision);if(m.trade){addTrade(m.trade);document.querySelector('#tradeCount').textContent=Number(document.querySelector('#tradeCount').textContent)+1}} if(m.type==='config'){chartMarkers=[];document.querySelector('#symbolTitle').textContent=m.symbol.replace('USDT','/USDT');makeChart(m.candles)} if(m.type==='status')setLive(false);}
+}
+document.querySelector('#symbolSelect').addEventListener('change',configure); document.querySelector('#intervalSelect').addEventListener('change',configure);
+lucide.createIcons(); bootstrap().then(connect);
+</script>
+</body>
+</html>
