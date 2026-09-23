@@ -150,16 +150,18 @@ async def process_closed_candle():
         portfolio.mark(price)
         trade = None
 
+        conf_threshold = 0.40  # Aggressive mode (exceeds random 33.3% prior)
         if state["trading_active"]:
-            if action == "buy" and decision["confidence"] >= 0.55 and portfolio.quantity <= 1e-12:
-                qty = portfolio.buy(price, 0.25)
-                if qty:
-                    trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"BUY",
-                             "price":price,"quantity":qty,"cash_after":portfolio.cash,
-                             "position_after":portfolio.quantity,"realized_pnl":0.0}
-                    db.add_trade(trade)
+            if action == "buy" and decision["confidence"] >= conf_threshold and portfolio.quantity <= 1e-12:
+                if portfolio.cash > 1.0:
+                    qty = portfolio.buy(price, 0.25)
+                    if qty:
+                        trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"BUY",
+                                 "price":price,"quantity":qty,"cash_after":portfolio.cash,
+                                 "position_after":portfolio.quantity,"realized_pnl":0.0}
+                        db.add_trade(trade)
 
-            elif action == "sell" and decision["confidence"] >= 0.55 and portfolio.quantity > 0:
+            elif action == "sell" and decision["confidence"] >= conf_threshold and portfolio.quantity > 0:
                 result = portfolio.sell(price, 1.0)
                 if result:
                     trade = {"ts":datetime.now(timezone.utc).isoformat(),"symbol":state["symbol"],"side":"SELL",
@@ -173,7 +175,9 @@ async def process_closed_candle():
                   "symbol":state["symbol"],"interval":state["interval"],"price":price,
                   "action":action,"confidence":decision["confidence"],"latency_ms":decision["latency_ms"],
                   "indicators":ctx,"reason":decision["reason"],"model":decision["model"],
-                  "is_live_trading": bool(state["trading_active"])}
+                  "is_live_trading": bool(state["trading_active"]),
+                  "executed": bool(trade is not None),
+                  "trade": trade}
         db.add_decision(record)
         state["latest_decision"] = record
         await broadcast({

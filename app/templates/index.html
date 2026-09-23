@@ -168,9 +168,9 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
     </div>
     
     <div class="mt-4 grid grid-cols-3 gap-2 text-center text-[10px]">
-      <div class="rounded-xl bg-emerald-50 p-2.5 text-emerald-700 font-semibold border border-emerald-100">BUY<br><span class="text-[9px] font-normal text-emerald-600">≥ 55% conf</span></div>
+      <div class="rounded-xl bg-emerald-50 p-2.5 text-emerald-700 font-semibold border border-emerald-100">BUY<br><span class="text-[9px] font-normal text-emerald-600">≥ 40% conf</span></div>
       <div class="rounded-xl bg-slate-50 p-2.5 text-slate-600 font-semibold border border-slate-200">HOLD<br><span class="text-[9px] font-normal text-slate-500">neutro / ruído</span></div>
-      <div class="rounded-xl bg-rose-50 p-2.5 text-rose-700 font-semibold border border-rose-100">SELL<br><span class="text-[9px] font-normal text-rose-600">≥ 55% conf</span></div>
+      <div class="rounded-xl bg-rose-50 p-2.5 text-rose-700 font-semibold border border-rose-100">SELL<br><span class="text-[9px] font-normal text-rose-600">≥ 40% conf</span></div>
     </div>
 
     <!-- Start / Stop Action Button -->
@@ -672,25 +672,38 @@ let isTradingActiveState = false;
 function setAction(d) {
   if (!d) return;
   const isLive = (d.is_live_trading !== undefined) ? d.is_live_trading : isTradingActiveState;
+  const isExecuted = Boolean(d.executed);
   const b = document.querySelector('#actionBadge');
+  const c = Math.round((d.confidence || 0) * 100);
+  const a = (d.action || 'HOLD').toUpperCase();
+
   if (!isLive) {
     b.textContent = 'PAUSADO';
     b.className = 'text-[10px] px-2 py-1 rounded-full font-bold bg-slate-100 text-slate-500 border border-slate-200';
-  } else {
-    const a = (d.action || 'HOLD').toUpperCase();
+  } else if (isExecuted) {
     b.textContent = a;
-    b.className = 'text-[10px] px-2 py-1 rounded-full font-bold ' + (a === 'BUY' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : a === 'SELL' ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-slate-100 text-slate-500 border border-slate-200');
+    b.className = 'text-[10px] px-2 py-1 rounded-full font-bold ' + (a === 'BUY' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200');
+  } else {
+    if (a === 'BUY' || a === 'SELL') {
+      b.textContent = a + ' (< 40%)';
+      b.className = 'text-[10px] px-2 py-1 rounded-full font-bold bg-amber-50 text-amber-700 border border-amber-200';
+    } else {
+      b.textContent = 'HOLD';
+      b.className = 'text-[10px] px-2 py-1 rounded-full font-bold bg-slate-100 text-slate-500 border border-slate-200';
+    }
   }
-  const c = Math.round((d.confidence || 0) * 100);
+
   document.querySelector('#confidence').textContent = c + '%';
-  document.querySelector('#confidenceBar').style.width = c + '%';
+  document.querySelector('#confidenceBar').style.width = Math.min(100, c) + '%';
   document.querySelector('#latency').textContent = Number(d.latency_ms || 0).toFixed(1) + ' ms';
   const sq = document.querySelector('#setupQualityText');
   if (sq) {
     if (!isLive) {
       sq.textContent = 'modo: observação';
+    } else if (isExecuted) {
+      sq.textContent = 'executado: ordem realizada';
     } else {
-      sq.textContent = 'setup: ' + (d.setup_quality || (c >= 70 ? 'forte' : c >= 55 ? 'moderado' : 'fraco'));
+      sq.textContent = 'setup: ' + (d.setup_quality || (c >= 40 ? 'moderado' : 'fraco (ruído)'));
     }
   }
   updateQuant(d.indicators);
@@ -782,30 +795,53 @@ async function updateIndicatorsConfig() {
 }
 
 function addDecision(d) {
-  if (d.is_live_trading) {
+  const isLive = Boolean(d.is_live_trading);
+  const isExecuted = Boolean(d.executed);
+  const action = (d.action || 'hold').toLowerCase();
+  const confPct = Math.round((d.confidence || 0) * 100);
+
+  if (isLive && isExecuted) {
     applyMarker(d);
   }
+
   const el = document.querySelector('#decisionLog'), row = document.createElement('div');
-  const isLive = d.is_live_trading;
   let color = 'text-slate-500';
   let badgeTitle = 'OBSERVAÇÃO';
   let iconName = 'eye';
-  if (isLive) {
-    iconName = 'activity';
-    if (d.action === 'buy') {
+
+  if (!isLive) {
+    badgeTitle = 'OBSERVAÇÃO · Laya ' + action.toUpperCase() + ' · ' + confPct + '%';
+    iconName = 'eye';
+    color = 'text-slate-500';
+  } else if (isExecuted) {
+    iconName = 'zap';
+    if (action === 'buy') {
       color = 'text-emerald-600';
-      badgeTitle = 'EXECUÇÃO: BUY';
-    } else if (d.action === 'sell') {
+      badgeTitle = 'EXECUÇÃO: BUY · ' + confPct + '%';
+    } else if (action === 'sell') {
       color = 'text-rose-600';
-      badgeTitle = 'EXECUÇÃO: SELL';
+      badgeTitle = 'EXECUÇÃO: SELL · ' + confPct + '%';
     } else {
       badgeTitle = 'EXECUÇÃO: HOLD';
     }
   } else {
-    badgeTitle = 'OBSERVAÇÃO · Laya ' + (d.action || 'hold').toUpperCase();
+    if (action === 'buy') {
+      iconName = 'filter';
+      color = 'text-amber-600';
+      badgeTitle = 'SINAL FILTRADO: BUY (' + confPct + '% < 40%)';
+    } else if (action === 'sell') {
+      iconName = 'filter';
+      color = 'text-amber-600';
+      badgeTitle = 'SINAL FILTRADO: SELL (' + confPct + '% < 40%)';
+    } else {
+      iconName = 'pause-circle';
+      color = 'text-slate-500';
+      badgeTitle = 'DECISÃO: HOLD · ' + confPct + '%';
+    }
   }
+
   row.className = 'p-3 flex items-center gap-3';
-  row.innerHTML = '<div class="w-8 h-8 rounded-lg bg-slate-50 grid place-items-center"><i data-lucide="' + iconName + '" class="w-4 ' + color + '"></i></div><div class="min-w-0 flex-1"><div class="text-xs font-semibold ' + color + '">' + badgeTitle + ' · ' + Math.round((d.confidence || 0) * 100) + '%</div><div class="text-[10px] text-slate-400 truncate">' + d.reason + ' · ' + Number(d.latency_ms || 0).toFixed(1) + 'ms</div></div><div class="text-right"><div class="text-xs font-medium">' + money(d.price) + '</div><div class="text-[10px] text-slate-400">' + new Date(d.ts).toLocaleTimeString() + '</div></div>';
+  row.innerHTML = '<div class="w-8 h-8 rounded-lg bg-slate-50 grid place-items-center"><i data-lucide="' + iconName + '" class="w-4 ' + color + '"></i></div><div class="min-w-0 flex-1"><div class="text-xs font-semibold ' + color + '">' + badgeTitle + '</div><div class="text-[10px] text-slate-400 truncate">' + d.reason + ' · ' + Number(d.latency_ms || 0).toFixed(1) + 'ms</div></div><div class="text-right"><div class="text-xs font-medium">' + money(d.price) + '</div><div class="text-[10px] text-slate-400">' + new Date(d.ts).toLocaleTimeString() + '</div></div>';
   el.prepend(row);
   while (el.children.length > 25) el.lastChild.remove();
   lucide.createIcons();
@@ -839,8 +875,8 @@ function updateCandle(c) {
 }
 
 function applyMarker(d) {
-  // CRITICAL: Never plot execution arrows on the chart when trading is paused/observation mode!
-  if (!d || !d.candle_time || !candleSeries || !d.is_live_trading) return;
+  // CRITICAL: Only plot execution arrows on the chart when a trade actually executed in live mode!
+  if (!d || !d.candle_time || !candleSeries || !d.is_live_trading || !d.executed) return;
   const pos = d.action === 'buy' ? 'belowBar' : d.action === 'sell' ? 'aboveBar' : 'inBar';
   const color = d.action === 'buy' ? '#13b879' : d.action === 'sell' ? '#f04464' : '#8b91a1';
   const shape = d.action === 'buy' ? 'arrowUp' : d.action === 'sell' ? 'arrowDown' : 'circle';

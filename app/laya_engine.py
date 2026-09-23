@@ -67,13 +67,19 @@ class LayaDecisionEngine:
             answers = result.get("answers", {})
             action = answers.get("action", {})
             quality = answers.get("setup_quality", {})
+            choice = str(action.get("choice", "hold")).lower()
+            probs = action.get("probabilities", {})
+            chosen_prob = float(probs.get(choice, 0.0))
+            raw_conf = float(action.get("confidence", 0.0))
+            confidence = chosen_prob if chosen_prob > 0.0 else raw_conf
             return {
-                "action": str(action.get("choice", "hold")).lower(),
-                "confidence": float(action.get("confidence", 0.0)),
+                "action": choice,
+                "confidence": confidence,
+                "probabilities": probs,
                 "setup_quality": quality.get("score"),
                 "latency_ms": (time.perf_counter()-started)*1000,
                 "model": self.model_name,
-                "reason": "Laya typed decision",
+                "reason": f"Laya decision (prob={confidence:.1%})",
             }
         except Exception as exc:
             return {"action":"hold","confidence":0.0,"setup_quality":None,
