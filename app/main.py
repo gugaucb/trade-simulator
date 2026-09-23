@@ -76,11 +76,12 @@ def append_candle(candle):
 
 def build_filtered_laya_state(ctx: dict, symbol: str, interval: str, portfolio_snapshot: dict, active_indicators: list[str]) -> dict:
     active_set = set(active_indicators or [])
+    price = float(ctx.get("close", 0.0))
     ms = {
-        "price": ctx["close"],
-        "return_1_percent": ctx["return_1"],
-        "return_5_percent": ctx["return_5"],
-        "trend": ctx["trend"]
+        "price": price,
+        "return_1_percent": ctx.get("return_1"),
+        "return_5_percent": ctx.get("return_5"),
+        "trend": ctx.get("trend")
     }
     if "rsi" in active_set and ctx.get("rsi") is not None:
         ms["rsi_14"] = ctx["rsi"]
@@ -99,17 +100,31 @@ def build_filtered_laya_state(ctx: dict, symbol: str, interval: str, portfolio_s
     if "volume" in active_set and ctx.get("volume_ratio") is not None:
         ms["volume_ratio"] = ctx["volume_ratio"]
 
+    qty = float(portfolio_snapshot.get("quantity", 0.0))
+    pos_usd = float(portfolio_snapshot.get("position_usd", round(qty * price, 2)))
+    cash = float(portfolio_snapshot.get("cash", 0.0))
+    equity = float(portfolio_snapshot.get("equity", round(cash + pos_usd, 2)))
+
     return {
         "asset": symbol,
+        "current_price": price,
         "timeframe": interval,
+        "active_indicators": sorted(list(active_set)),
         "market_state": ms,
         "paper_position": {
-            "cash": portfolio_snapshot["cash"],
-            "quantity": portfolio_snapshot["quantity"],
-            "average_entry": portfolio_snapshot["avg_entry"],
-            "unrealized_pnl": portfolio_snapshot["unrealized_pnl"]
+            "cash": cash,
+            "quantity": qty,
+            "position_usd": pos_usd,
+            "average_entry": float(portfolio_snapshot.get("avg_entry", 0.0)),
+            "unrealized_pnl": float(portfolio_snapshot.get("unrealized_pnl", 0.0)),
+            "equity": equity
         },
-        "decision_policy": "Paper trading only. Prefer HOLD when signals conflict."
+        "decision_policy": (
+            "Spot trading only (no shorting). Choose between 'buy', 'sell', or 'hold'. "
+            "Only BUY if available cash > 0 and bullish momentum is confirmed. "
+            "Only SELL if currently holding a position (quantity > 0) to lock profit or stop loss. "
+            "Otherwise, maintain HOLD."
+        )
     }
 
 def laya_state(ctx):
@@ -449,29 +464,14 @@ async def backtest_run(payload: dict):
             sub_df = df.iloc[:i+1]
             ctx = latest_context(sub_df)
             ts = int(c["time"])
-            state_payload = {
-                "asset": symbol,
-                "timeframe": interval,
-                "candle_time": ts,
-                "market_state": {
-                    "price": ctx["close"],
-                    "return_1_percent": ctx["return_1"],
-                    "return_5_percent": ctx["return_5"],
-                    "trend": ctx["trend"],
-                    "rsi_14": ctx["rsi"],
-                    "macd": ctx["macd"],
-                    "macd_signal": ctx["macd_signal"],
-                    "macd_histogram": ctx["macd_hist"],
-                    "ema_20": ctx["ema20"],
-                    "ema_50": ctx["ema50"],
-                    "bollinger_position": ctx["bb_position"],
-                    "atr": ctx["atr"],
-                    "atr_percent": ctx["atr_pct"],
-                    "volume_ratio": ctx["volume_ratio"]
-                },
-                "paper_position": {"cash": initial_cash, "quantity": 0.0, "average_entry": 0.0, "unrealized_pnl": 0.0},
-                "decision_policy": "Paper trading only. Prefer HOLD when signals conflict."
-            }
+            state_payload = build_filtered_laya_state(
+                ctx=ctx,
+                symbol=symbol,
+                interval=interval,
+                portfolio_snapshot={"cash": initial_cash, "quantity": 0.0, "avg_entry": 0.0, "unrealized_pnl": 0.0, "position_usd": 0.0, "equity": initial_cash},
+                active_indicators=["rsi", "macd", "ema", "bb", "atr", "volume"]
+            )
+            state_payload["candle_time"] = ts
             dec = await laya.decide_cached(state_payload, db, force_refresh=not use_laya_cache)
             laya_decisions[ts] = dec
 

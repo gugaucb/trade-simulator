@@ -28,13 +28,23 @@ class LayaDecisionEngine:
             "action": {
                 "type": "choice",
                 "instructions": (
-                    "Choose the single next paper-trading action for this crypto asset. "
-                    "Use only the supplied quantitative state. Prefer HOLD when evidence is mixed or weak."
+                    "Evaluate the market state and select exactly one trading action: 'buy', 'sell', or 'hold'. "
+                    "Use only the supplied quantitative indicators, market trend, and paper position. "
+                    "Prefer 'hold' whenever evidence is mixed, noisy, or conviction is weak."
                 ),
                 "criteria": {
-                    "buy": "Open or increase a long paper position when bullish evidence is sufficiently coherent.",
-                    "sell": "Close or reduce a long paper position when bearish evidence is sufficiently coherent.",
-                    "hold": "Do not change the position because evidence is mixed, weak, or risk is elevated."
+                    "buy": (
+                        "Open or accumulate a long spot position using available cash when quantitative indicators "
+                        "and market trend show coherent bullish momentum."
+                    ),
+                    "sell": (
+                        "Close or liquidate the current position completely back into cash when quantitative indicators "
+                        "show bearish momentum, trend reversal, or risk mitigation."
+                    ),
+                    "hold": (
+                        "Keep current allocation unchanged (remain in cash or maintain existing position) "
+                        "because market evidence is mixed, conflicting, or risk is elevated."
+                    )
                 }
             },
             "setup_quality": {
