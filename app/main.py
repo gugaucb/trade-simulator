@@ -144,7 +144,7 @@ async def stream_loop(symbol, interval):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request":request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 @app.get("/api/bootstrap")
 async def bootstrap():

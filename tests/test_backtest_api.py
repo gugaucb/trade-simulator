@@ -4,6 +4,12 @@ from app.main import app
 
 client = TestClient(app)
 
+def test_root_index_renders():
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "Crypto Laya" in response.text
+    assert "Backtest Lab" in response.text
+
 def test_api_backtest_strategies():
     response = client.get("/api/backtest/strategies")
     assert response.status_code == 200
